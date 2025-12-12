@@ -176,7 +176,7 @@ export default function VoicePage() {
     }
   }
 
-  async function ensureSocket(): Promise<WebSocket> {
+  async function ensureSocket(): Promise<WebSocket | null> {
     const existing = wsRef.current;
     if (existing && existing.readyState === WebSocket.OPEN) return existing;
 
@@ -261,10 +261,34 @@ export default function VoicePage() {
       setStatus("disconnected");
     };
 
-    await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new Error("ws_error"));
+    const openOk = await new Promise<boolean>((resolve) => {
+      const timeoutMs = 5000;
+      const t = window.setTimeout(() => resolve(false), timeoutMs);
+
+      ws.onopen = () => {
+        window.clearTimeout(t);
+        resolve(true);
+      };
+      ws.onerror = () => {
+        window.clearTimeout(t);
+        resolve(false);
+      };
     });
+
+    if (!openOk) {
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      setMessages((prev: ChatMessage[]) => [
+        ...prev,
+        { role: "system", text: `ws_error: failed to connect to ${wsUrl}` },
+      ]);
+      setStatus("disconnected");
+      return null;
+    }
+
     setStatus("idle");
     return ws;
   }
@@ -292,6 +316,7 @@ export default function VoicePage() {
     }
 
     const ws = await ensureSocket();
+    if (!ws) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
