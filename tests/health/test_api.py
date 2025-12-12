@@ -1,10 +1,7 @@
 from fastapi.testclient import TestClient
 
-from reflections.api.main import app
 
-
-def test_health_ok() -> None:
-    client = TestClient(app)
+def test_health_ok(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()

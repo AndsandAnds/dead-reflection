@@ -27,6 +27,10 @@ export default function Home() {
           {apiBase}
         </div>
       </section>
+
+      <section style={{ marginTop: 16 }}>
+        <a href="/voice">Go to Voice MVP</a>
+      </section>
     </main>
   );
 }

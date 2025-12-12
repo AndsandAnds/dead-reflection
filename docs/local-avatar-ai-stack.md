@@ -87,6 +87,40 @@ The backend is responsible for:
 - memory write/read policies (what becomes long-term memory)
 - tool execution (optional: filesystem search, calendar, notes, etc.)
 
+**Backend layering convention (required)**
+- **`api.py`**: all API logic only
+  - FastAPI routers/endpoints, request/response models, status codes
+  - translates domain errors → HTTP responses
+- **`schemas.py`**: request/response models and internal DTOs
+  - keep Pydantic models here when they’re reused across layers
+- **`exceptions.py`**: feature-level exception types and constants
+  - custom exceptions live here (used by service/flow; mapped by api)
+- **`flows.py`** (optional): orchestration across **multiple services**
+  - used when an endpoint needs to coordinate more than one service
+- **`service.py`**: main business logic
+  - orchestrates repositories and external services
+  - owns transactions/commits and error handling
+  - defines/raises custom exceptions (domain/service layer)
+- **`repository.py`**: data access only
+  - all DB queries (and/or external API calls)
+  - **no error handling**
+  - returns raw results (and flushes when appropriate), leaving commit decisions to `service.py`
+
+**App wiring convention (project-wide)**
+- Central app assembly lives in `reflections.api.main`:
+  - `build_app()` constructs the FastAPI app
+  - `configure_routers(app)` registers feature routers
+  - `configure_global_exception_handlers(app)` registers global exception handlers
+- Shared infrastructure modules:
+  - `reflections.core.*` (settings, db, websocket manager)
+  - `reflections.commons.*` (logging, exceptions, depends)
+
+**Serialization convention**
+- Prefer **Pydantic v2** utilities over manual JSON handling:
+  - `model_validate(...)` when parsing incoming payloads
+  - `model_dump()` when emitting payloads
+- For websockets, prefer `websocket.receive_json()` + `websocket.send_json(model.model_dump())`
+
 **Tools/Libraries:**
 - **FastAPI** (HTTP + WebSockets)
 - **Pydantic** (schemas)

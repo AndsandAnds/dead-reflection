@@ -33,6 +33,24 @@ alwaysApply: true
 - **Postgres + pgvector** for relational + vector in one DB (local-first simplicity).
 - **SentenceTransformers** for embeddings (decoupled from LLM runtime).
 
+### Backend architecture pattern (required)
+- **`api.py`** layer:
+  - FastAPI routing/HTTP concerns only (status codes, request/response models)
+  - maps service/domain exceptions → HTTP errors
+- **`schemas.py`**:
+  - Pydantic request/response models + DTOs shared across layers
+- **`exceptions.py`**:
+  - feature-level custom exceptions and constants
+- **`flows.py`** (optional):
+  - only when an endpoint needs to orchestrate **multiple services**
+- **`service.py`** layer:
+  - main business logic + orchestration
+  - owns error handling, DB commits/transactions, and custom exceptions
+- **`repository.py`** layer:
+  - DB calls (and/or external API calls) only
+  - no error handling
+  - returns results and flushes as needed; no commits
+
 ### Realtime voice
 - **STT**: **whisper.cpp + Metal** (Apple Silicon optimized; host-installed preferred).
 - **VAD**: `silero-vad` (or `webrtcvad`) for endpointing and barge-in.
@@ -64,7 +82,7 @@ alwaysApply: true
 ### Coding guidance (for agents)
 - Prefer **small, composable modules** with clear boundaries:
   - UI: presentational components + minimal state
-  - API: routers → services → persistence
+  - Backend: `api.py` → `service.py` → `repository.py`
   - ML/providers: adapter layer so we can swap Ollama→vLLM, TTS engines, etc.
 - **Streaming-first**:
   - use WebSockets for audio/text streaming
