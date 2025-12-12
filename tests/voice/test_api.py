@@ -50,3 +50,13 @@ def test_voice_ws_audio_frame_emits_partial(client: TestClient) -> None:
                 break
         assert assistant_msg is not None
         assert isinstance(assistant_msg.get("text"), str)
+
+        # Optional: TTS audio may be emitted if configured.
+        # Always: a final "done" message should close out the turn.
+        done = None
+        for _ in range(10):
+            msg = ws.receive_json()
+            if msg["type"] == "done":
+                done = msg
+                break
+        assert done is not None

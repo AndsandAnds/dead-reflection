@@ -16,10 +16,12 @@ from reflections.voice.schemas import (
     ClientMessage,
     ServerAssistantMessage,
     ServerCancelled,
+    ServerDone,
     ServerError,
     ServerFinalTranscript,
     ServerPartialTranscript,
     ServerReady,
+    ServerTtsAudio,
 )
 
 
@@ -56,6 +58,14 @@ def build_final_transcript_message(
 
 def build_assistant_message(*, text: str) -> ServerAssistantMessage:
     return ServerAssistantMessage(text=text)
+
+
+def build_tts_audio_message(*, wav_b64: str) -> ServerTtsAudio:
+    return ServerTtsAudio(wav_b64=wav_b64)
+
+
+def build_done_message() -> ServerDone:
+    return ServerDone()
 
 
 _client_msg_adapter = TypeAdapter(ClientMessage)
@@ -176,6 +186,21 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 await websocket.send_json(
                     build_assistant_message(text=reply).model_dump()
                 )
+
+                if settings.TTS_BASE_URL:
+                    try:
+                        wav_bytes = await repo.synthesize_tts_wav(text=reply)
+                        await websocket.send_json(
+                            build_tts_audio_message(
+                                wav_b64=repo.wav_bytes_to_b64(wav_bytes)
+                            ).model_dump()
+                        )
+                    except Exception as exc:
+                        await websocket.send_json(
+                            ServerError(message=f"tts_error:{exc!s}").model_dump()
+                        )
+
+                await websocket.send_json(build_done_message().model_dump())
                 break
 
             # ignore unknown message types

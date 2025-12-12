@@ -37,5 +37,9 @@ class Settings(BaseSettings):
     STT_BASE_URL: str | None = None
     STT_TIMEOUT_S: float = 120.0
 
+    # Text-to-speech (recommended: host-run bridge on macOS)
+    TTS_BASE_URL: str | None = None
+    TTS_TIMEOUT_S: float = 30.0
+
 
 settings = Settings()

@@ -32,6 +32,13 @@ function pcm16Base64FromFloat32(input: Float32Array): string {
   return btoa(bin);
 }
 
+function arrayBufferFromBase64(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export default function VoicePage() {
   const [status, setStatus] = useState<
     "idle" | "connecting" | "running" | "finalizing"
@@ -49,6 +56,7 @@ export default function VoicePage() {
   const outGainRef = useRef<GainNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastUiTickMsRef = useRef<number>(0);
+  const playbackRef = useRef<AudioBufferSourceNode | null>(null);
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -126,6 +134,7 @@ export default function VoicePage() {
     try {
       worklet?.disconnect();
       source?.disconnect();
+      playbackRef.current?.stop();
       ctx?.close();
     } catch {
       // ignore
@@ -154,6 +163,13 @@ export default function VoicePage() {
 
   async function start() {
     setStatus("connecting");
+    // Barge-in: stop any previous playback immediately.
+    try {
+      playbackRef.current?.stop();
+      playbackRef.current = null;
+    } catch {
+      // ignore
+    }
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -181,7 +197,38 @@ export default function VoicePage() {
           ]);
           // Quick audible + visual confirmation that output is working.
           playBeep();
-          // We consider the turn complete once assistant reply arrives.
+          return;
+        }
+        if (msg.type === "tts_audio") {
+          const ctx = ctxRef.current;
+          const gain = outGainRef.current;
+          if (!ctx || !gain) return;
+
+          const wavB64 = String(msg.wav_b64 ?? "");
+          if (!wavB64) return;
+
+          const buf = arrayBufferFromBase64(wavB64);
+          ctx
+            .decodeAudioData(buf.slice(0))
+            .then((audioBuffer) => {
+              // Stop any previous playback.
+              try {
+                playbackRef.current?.stop();
+              } catch {
+                // ignore
+              }
+              const src = ctx.createBufferSource();
+              src.buffer = audioBuffer;
+              src.connect(gain);
+              playbackRef.current = src;
+              src.start();
+            })
+            .catch(() => {
+              // ignore decode errors
+            });
+          return;
+        }
+        if (msg.type === "done") {
           closeWs();
           cleanupAudio();
           setStatus("idle");

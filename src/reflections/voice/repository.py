@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import wave
 from dataclasses import dataclass, field
@@ -72,3 +73,24 @@ class VoiceRepository:
             resp.raise_for_status()
             data = resp.json()
             return str(data.get("response", "")).strip()
+
+    async def synthesize_tts_wav(self, *, text: str) -> bytes:
+        """
+        Synthesize TTS audio via a host-run TTS bridge.
+
+        No error handling here (repository rule); service decides fallbacks.
+        """
+        if not settings.TTS_BASE_URL:
+            raise RuntimeError("TTS_BASE_URL is not configured")
+        async with httpx.AsyncClient(base_url=settings.TTS_BASE_URL) as client:
+            resp = await client.post(
+                "/speak",
+                json={"text": text},
+                timeout=float(settings.TTS_TIMEOUT_S),
+            )
+            resp.raise_for_status()
+            return bytes(resp.content)
+
+    @staticmethod
+    def wav_bytes_to_b64(wav_bytes: bytes) -> str:
+        return base64.b64encode(wav_bytes).decode("ascii")

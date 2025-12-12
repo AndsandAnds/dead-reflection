@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field  # type: ignore[import-not-found]
 
 
 class VoiceHello(BaseModel):
@@ -54,6 +54,15 @@ class ServerFinalTranscript(BaseModel):
 class ServerAssistantMessage(BaseModel):
     type: Literal["assistant_message"] = "assistant_message"
     text: str
+
+
+class ServerTtsAudio(BaseModel):
+    type: Literal["tts_audio"] = "tts_audio"
+    wav_b64: str
+
+
+class ServerDone(BaseModel):
+    type: Literal["done"] = "done"
 
 
 class ServerError(BaseModel):

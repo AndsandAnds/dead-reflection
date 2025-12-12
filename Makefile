@@ -1,6 +1,7 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
 .PHONY: migrate revision
 .PHONY: stt-bridge
+.PHONY: tts-bridge
 
 help:
 	@echo "Targets:"
@@ -19,6 +20,7 @@ help:
 	@echo "  make migrate           - apply Alembic migrations (docker compose api)"
 	@echo "  make revision name=... - create new Alembic revision (docker compose api)"
 	@echo "  make stt-bridge        - run host STT bridge (whisper.cpp) on :9001"
+	@echo "  make tts-bridge        - run host TTS bridge (macOS say) on :9002"
 	@echo "  make db-shell  - psql shell into Postgres"
 	@echo "  make api-shell - shell into API container"
 	@echo "  make ui-shell  - shell into UI container"
@@ -77,5 +79,8 @@ revision:
 
 stt-bridge:
 	poetry run python -m uvicorn reflections.stt_bridge.main:app --host 0.0.0.0 --port 9001
+
+tts-bridge:
+	poetry run python -m uvicorn reflections.tts_bridge.main:app --host 0.0.0.0 --port 9002
 
 
