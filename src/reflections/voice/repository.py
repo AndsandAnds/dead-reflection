@@ -26,6 +26,10 @@ class VoiceRepository:
         # "flush" concept for DB doesn't apply here; we still keep this layer dumb.
         return self.bytes_received
 
+    def reset_audio(self) -> None:
+        self.bytes_received = 0
+        self.audio_pcm16le.clear()
+
     async def transcribe_audio(self, *, sample_rate: int) -> str:
         """
         Transcribe buffered PCM16LE mono audio via an STT service.
@@ -62,17 +66,33 @@ class VoiceRepository:
 
         No error handling here (repository rule); service decides fallbacks.
         """
-        # Minimal, non-streaming call for MVP.
+        # Back-compat helper: call chat with a single user message.
+        return await self.generate_assistant_reply_chat(
+            messages=[{"role": "user", "content": transcript}]
+        )
+
+    async def generate_assistant_reply_chat(
+        self, *, messages: list[dict[str, str]]
+    ) -> str:
+        """
+        Call Ollama /api/chat with full message history.
+
+        This keeps conversational context by sending the accumulated messages
+        each turn (no server-side sessions).
+        """
         payload = {
             "model": settings.OLLAMA_MODEL,
-            "prompt": transcript,
+            "messages": messages,
             "stream": False,
+            # Keep model hot between calls (best-effort; Ollama may ignore).
+            "keep_alive": "10m",
         }
         async with httpx.AsyncClient(base_url=settings.OLLAMA_BASE_URL) as client:
-            resp = await client.post("/api/generate", json=payload, timeout=30.0)
+            resp = await client.post("/api/chat", json=payload, timeout=30.0)
             resp.raise_for_status()
             data = resp.json()
-            return str(data.get("response", "")).strip()
+            msg = data.get("message") or {}
+            return str(msg.get("content", "")).strip()
 
     async def synthesize_tts_wav(self, *, text: str) -> bytes:
         """

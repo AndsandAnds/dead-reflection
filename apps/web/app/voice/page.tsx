@@ -41,7 +41,7 @@ function arrayBufferFromBase64(b64: string): ArrayBuffer {
 
 export default function VoicePage() {
   const [status, setStatus] = useState<
-    "idle" | "connecting" | "running" | "finalizing"
+    "disconnected" | "connecting" | "idle" | "running" | "finalizing"
   >("idle");
   const [partial, setPartial] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -57,6 +57,7 @@ export default function VoicePage() {
   const rafRef = useRef<number | null>(null);
   const lastUiTickMsRef = useRef<number>(0);
   const playbackRef = useRef<AudioBufferSourceNode | null>(null);
+  const workletLoadedRef = useRef<boolean>(false);
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -110,32 +111,18 @@ export default function VoicePage() {
     osc.stop(t0 + 0.13);
   }
 
-  function cleanupAudio() {
+  function cleanupCapture() {
     const worklet = workletRef.current;
     const source = sourceRef.current;
-    const ctx = ctxRef.current;
     const stream = streamRef.current;
 
     workletRef.current = null;
     sourceRef.current = null;
-    ctxRef.current = null;
     streamRef.current = null;
-    outAnalyserRef.current = null;
-    outGainRef.current = null;
-
-    try {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    } catch {
-      // ignore
-    } finally {
-      rafRef.current = null;
-    }
 
     try {
       worklet?.disconnect();
       source?.disconnect();
-      playbackRef.current?.stop();
-      ctx?.close();
     } catch {
       // ignore
     }
@@ -147,6 +134,34 @@ export default function VoicePage() {
     }
 
     setInputLevel(0);
+  }
+
+  function cleanupAll() {
+    const ctx = ctxRef.current;
+    ctxRef.current = null;
+    outAnalyserRef.current = null;
+    outGainRef.current = null;
+
+    try {
+      playbackRef.current?.stop();
+      playbackRef.current = null;
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    } catch {
+      // ignore
+    } finally {
+      rafRef.current = null;
+    }
+
+    try {
+      ctx?.close();
+    } catch {
+      // ignore
+    }
     setOutputLevel(0);
   }
 
@@ -161,16 +176,11 @@ export default function VoicePage() {
     }
   }
 
-  async function start() {
-    setStatus("connecting");
-    // Barge-in: stop any previous playback immediately.
-    try {
-      playbackRef.current?.stop();
-      playbackRef.current = null;
-    } catch {
-      // ignore
-    }
+  async function ensureSocket(): Promise<WebSocket> {
+    const existing = wsRef.current;
+    if (existing && existing.readyState === WebSocket.OPEN) return existing;
 
+    setStatus("connecting");
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -195,8 +205,6 @@ export default function VoicePage() {
             ...prev,
             { role: "assistant", text: String(msg.text ?? "") },
           ]);
-          // Quick audible + visual confirmation that output is working.
-          playBeep();
           return;
         }
         if (msg.type === "tts_audio") {
@@ -229,8 +237,6 @@ export default function VoicePage() {
           return;
         }
         if (msg.type === "done") {
-          closeWs();
-          cleanupAudio();
           setStatus("idle");
           return;
         }
@@ -242,8 +248,6 @@ export default function VoicePage() {
           return;
         }
         if (msg.type === "cancelled") {
-          closeWs();
-          cleanupAudio();
           setStatus("idle");
         }
       } catch {
@@ -252,25 +256,48 @@ export default function VoicePage() {
     };
 
     ws.onclose = () => {
-      // If the socket closes unexpectedly, clean up local capture resources.
-      if (status !== "idle") {
-        cleanupAudio();
-        setStatus("idle");
-      }
+      cleanupCapture();
+      cleanupAll();
+      setStatus("disconnected");
     };
 
     await new Promise<void>((resolve, reject) => {
       ws.onopen = () => resolve();
       ws.onerror = () => reject(new Error("ws_error"));
     });
+    setStatus("idle");
+    return ws;
+  }
+
+  async function ensureAudioContext(): Promise<AudioContext> {
+    const existing = ctxRef.current;
+    if (existing) return existing;
+    const ctx = new AudioContext();
+    ctxRef.current = ctx;
+    startOutputMeter(ctx);
+    if (!workletLoadedRef.current) {
+      await ctx.audioWorklet.addModule("/mic-capture-worklet.js");
+      workletLoadedRef.current = true;
+    }
+    return ctx;
+  }
+
+  async function start() {
+    // Barge-in: stop any previous playback immediately.
+    try {
+      playbackRef.current?.stop();
+      playbackRef.current = null;
+    } catch {
+      // ignore
+    }
+
+    const ws = await ensureSocket();
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
     });
     streamRef.current = stream;
-    const ctx = new AudioContext();
-    ctxRef.current = ctx;
-    startOutputMeter(ctx);
+    const ctx = await ensureAudioContext();
 
     // Let the server know our capture sample rate (used for duration estimates).
     ws.send(JSON.stringify({ type: "hello", sample_rate: ctx.sampleRate }));
@@ -279,7 +306,6 @@ export default function VoicePage() {
     sourceRef.current = source;
 
     // Capture via AudioWorklet (ScriptProcessorNode is deprecated).
-    await ctx.audioWorklet.addModule("/mic-capture-worklet.js");
     const worklet = new AudioWorkletNode(ctx, "mic-capture", {
       numberOfInputs: 1,
       numberOfOutputs: 0,
@@ -314,8 +340,9 @@ export default function VoicePage() {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       closeWs();
-      cleanupAudio();
-      setStatus("idle");
+      cleanupCapture();
+      cleanupAll();
+      setStatus("disconnected");
       return;
     }
 
@@ -325,8 +352,7 @@ export default function VoicePage() {
       } catch {
         // ignore
       }
-      closeWs();
-      cleanupAudio();
+      cleanupCapture();
       setStatus("idle");
       return;
     }
@@ -358,7 +384,15 @@ export default function VoicePage() {
   }
 
   useEffect(() => {
-    return () => stop();
+    return () => {
+      try {
+        stop(true);
+      } catch {
+        // ignore
+      }
+      closeWs();
+      cleanupAll();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import TypeAdapter
+from fastapi import WebSocket, WebSocketDisconnect  # type: ignore[import-not-found]
+from pydantic import TypeAdapter  # type: ignore[import-not-found]
 
 from reflections.core.settings import settings
 from reflections.voice.exceptions import VoiceServiceException
@@ -27,8 +27,10 @@ from reflections.voice.schemas import (
 
 @dataclass
 class VoiceSessionState:
-    cancelled: bool = False
+    closed: bool = False
+    recording: bool = False
     sample_rate: int = 16000
+    messages: list[dict[str, str]] = field(default_factory=list)
 
 
 def build_ready_message() -> ServerReady:
@@ -90,8 +92,10 @@ async def run_voice_session(websocket: WebSocket) -> None:
         last_sent = 0
         while True:
             await asyncio.sleep(0.25)
-            if state.cancelled:
+            if state.closed:
                 return
+            if not state.recording:
+                continue
             if repo.bytes_received != last_sent:
                 last_sent = repo.bytes_received
                 duration_s = last_sent / max(1.0, float(state.sample_rate) * 2.0)
@@ -129,9 +133,10 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 continue
 
             if parsed.type == "cancel":
-                state.cancelled = True
+                state.recording = False
+                repo.reset_audio()
                 await websocket.send_json(build_cancelled_message().model_dump())
-                break
+                continue
 
             if parsed.type == "hello":
                 if parsed.sample_rate:
@@ -143,11 +148,12 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     audio_bytes = base64.b64decode(parsed.pcm16le_b64)
                 except Exception:
                     continue
+                state.recording = True
                 repo.ingest_audio(audio_bytes)
                 continue
 
             if parsed.type == "end":
-                state.cancelled = True
+                state.recording = False
                 bytes_received = repo.bytes_received
                 duration_s = bytes_received / max(1.0, float(state.sample_rate) * 2.0)
                 transcript = (
@@ -170,9 +176,12 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     ).model_dump()
                 )
 
+                # Append to conversation history.
+                state.messages.append({"role": "user", "content": transcript})
+
                 try:
                     reply = await asyncio.wait_for(
-                        repo.generate_assistant_reply(transcript=transcript),
+                        repo.generate_assistant_reply_chat(messages=state.messages),
                         timeout=float(settings.OLLAMA_TIMEOUT_S),
                     )
                 except Exception as exc:
@@ -186,6 +195,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 await websocket.send_json(
                     build_assistant_message(text=reply).model_dump()
                 )
+                state.messages.append({"role": "assistant", "content": reply})
 
                 if settings.TTS_BASE_URL:
                     try:
@@ -201,7 +211,8 @@ async def run_voice_session(websocket: WebSocket) -> None:
                         )
 
                 await websocket.send_json(build_done_message().model_dump())
-                break
+                repo.reset_audio()
+                continue
 
             # ignore unknown message types
             continue
@@ -212,7 +223,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
         # If we later add structured error reporting, this is where it belongs.
         raise VoiceServiceException("Voice session failed", str(exc)) from exc
     finally:
-        state.cancelled = True
+        state.closed = True
         sender_task.cancel()
         # CancelledError may inherit from BaseException in modern Python.
         with contextlib.suppress(asyncio.CancelledError):
