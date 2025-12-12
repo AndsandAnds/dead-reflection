@@ -80,6 +80,27 @@ Then in the UI:
   - backend emits `final_transcript` (real STT text when STT is configured)
   - backend calls Ollama with that text and emits `assistant_message`
 
+## Voice (TTS) setup (macOS `say`)
+We also support local **TTS** by running a small host bridge that uses macOS `say`
+and returns a 16kHz PCM WAV that the browser plays via WebAudio.
+
+1) Run the TTS bridge (host):
+
+```bash
+make tts-bridge
+```
+
+2) Configure `.env` so the API uses the bridge:
+
+```bash
+TTS_BASE_URL=http://host.docker.internal:9002
+TTS_TIMEOUT_S=30
+```
+
+Then in the UI:
+- Start mic → speak → Stop (transcribe)
+  - backend emits `tts_audio` and the UI plays the spoken reply
+
 Stop it:
 
 ```bash

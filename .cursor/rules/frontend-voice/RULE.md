@@ -37,6 +37,8 @@ Applies to `apps/web/**` (Next.js App Router).
   - `partial_transcript`
   - `final_transcript`
   - `assistant_message` (or token streaming later)
+  - `tts_audio` (playback audio; prefer streaming chunks later)
+  - `done` (turn complete; keep socket open for multi-turn sessions)
   - `error` (surface STT/LLM failures explicitly)
   - `cancel` / `barge_in`
 

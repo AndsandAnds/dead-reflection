@@ -53,6 +53,14 @@ Flow:
 Note: if FastAPI runs in Docker (default), `STT_BASE_URL` should usually be
 `http://host.docker.internal:9001` so the container can reach the host bridge.
 
+### TTS bridge (current implementation)
+We currently use a small **host-run TTS bridge** (`reflections.tts_bridge`) so we can:
+- use macOS **`say`** (fast, no extra model downloads)
+- return a **16kHz PCM WAV** that the browser can play via WebAudio
+
+Note: if FastAPI runs in Docker (default), `TTS_BASE_URL` should usually be
+`http://host.docker.internal:9002` so the container can reach the host bridge.
+
 Suggested Apple Silicon defaults:
 - **LLM (Ollama)**: start with a **7B–8B** instruct model (quality/latency sweet spot).
 - **Embeddings**: SentenceTransformers runs fine on CPU; you can explore MPS acceleration later if needed.
@@ -245,8 +253,10 @@ MVP UI needs:
   - `ready`
   - `partial_transcript` (currently “listening” stub while recording)
   - `final_transcript` (real STT text when STT is configured, otherwise stub)
-  - `assistant_message` (Ollama response)
-  - `error` (e.g. `stt_error:*` / `ollama_error:*`)
+  - `assistant_message` (Ollama response; **context retained** by sending full message history via `/api/chat`)
+  - `tts_audio` (base64 WAV; optional when TTS configured)
+  - `done` (turn complete; session can remain open for next turn)
+  - `error` (e.g. `stt_error:*` / `ollama_error:*` / `tts_error:*`)
 
 ### 6) Safety + Privacy Controls (Local-first)
 Even local-only, we want guardrails:
