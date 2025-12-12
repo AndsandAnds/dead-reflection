@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0"
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-RUN poetry install --no-ansi
+# Install base deps + ML extras (memory embeddings) inside the container.
+RUN poetry install --no-ansi --extras ml
 
 
 FROM python:3.12-slim AS dev

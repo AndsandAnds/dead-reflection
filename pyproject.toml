@@ -6,7 +6,9 @@ authors = [
     {name = "Your Name",email = "you@example.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+# Keep <3.15 so Poetry can resolve packages (e.g. torch/triton) that currently
+# publish wheels with an upper-bound Python constraint.
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.115.0,<1.0.0",
     "uvicorn[standard]>=0.30.0,<1.0.0",
@@ -15,12 +17,18 @@ dependencies = [
     "sqlalchemy>=2.0.0,<3.0.0",
     "alembic>=1.13.0,<2.0.0",
     "psycopg[binary]>=3.2.0,<4.0.0",
-    "sentence-transformers>=3.0.0,<4.0.0",
     "pytest>=8.0.0,<9.0.0",
     "requests>=2.32.0,<3.0.0",
     "pydantic-settings>=2.6.0,<3.0.0",
     "pgvector>=0.3.6,<0.4.0",
     "uuid6>=2024.7.10",
+]
+
+[project.optional-dependencies]
+# Heavy ML deps (torch, transformers, etc.). Keep optional so lightweight host
+# tasks (e.g. STT bridge) can run without pulling in Torch.
+ml = [
+    "sentence-transformers>=3.0.0,<4.0.0",
 ]
 
 [tool.poetry.group.dev.dependencies]

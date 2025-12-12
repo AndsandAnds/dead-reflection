@@ -8,7 +8,7 @@ Runs a character.ai-style “avatar AI” locally on Apple Silicon. **No data le
 - **DB**: Postgres + pgvector (Docker)
 - **Embeddings**: SentenceTransformers
 - **LLM runtime**: Ollama (**host-installed on macOS for Metal**; containers call `host.docker.internal`)
-- **STT**: whisper.cpp + Metal (host-installed; planned integration)
+- **STT**: whisper.cpp + Metal (**host-installed**) via a small local STT bridge (`make stt-bridge`)
 - **Tests**: pytest (backend), Vitest + Testing Library (frontend)
 - **Code cleanliness**: pre-commit (Ruff + Prettier + basic hooks)
 
@@ -21,7 +21,7 @@ Architecture notes live in `docs/local-avatar-ai-stack.md`.
   - Ensure it’s reachable at `http://localhost:11434`
 
 Optional (voice):
-- `whisper.cpp` built with Metal support (we’ll wire it in soon)
+- `whisper.cpp` (Homebrew) + a Whisper model file (see “Voice (STT) setup” below)
 
 ## Quickstart
 1) (Optional) create a local env file:
@@ -41,6 +41,44 @@ make up
 3) Open:
 - UI: `http://localhost:3000`
 - API health: `http://localhost:8000/health`
+
+## Voice (STT) setup (whisper.cpp + Metal)
+Ollama only accepts **text**, so for voice we must do **STT** first.
+
+1) Install whisper.cpp:
+
+```bash
+brew install whisper-cpp
+```
+
+2) Download a model (English-only example):
+
+```bash
+mkdir -p ~/whisper-models
+curl -L -o ~/whisper-models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+3) Run the STT bridge (host):
+
+```bash
+export WHISPER_CPP_BIN=/opt/homebrew/bin/whisper-cli
+export WHISPER_CPP_MODEL="$HOME/whisper-models/ggml-base.en.bin"
+make stt-bridge
+```
+
+4) Configure `.env` so the API uses the bridge:
+
+```bash
+# If the API runs in Docker (default), use host.docker.internal:
+STT_BASE_URL=http://host.docker.internal:9001
+STT_TIMEOUT_S=120
+```
+
+Then in the UI:
+- Start mic → speak → Stop (transcribe)
+  - backend emits `final_transcript` (real STT text when STT is configured)
+  - backend calls Ollama with that text and emits `assistant_message`
 
 Stop it:
 

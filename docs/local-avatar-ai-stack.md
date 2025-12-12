@@ -39,6 +39,20 @@ Practical implication:
   - **whisper.cpp** with Metal can be very fast for realtime.
   - **faster-whisper** can still work well, especially with smaller models, but you’ll want to benchmark on your machine.
 
+### STT bridge (current implementation)
+We currently use a small **host-run STT bridge** (`reflections.stt_bridge`) so we can:
+- run **whisper.cpp** on macOS with Metal
+- keep the main API in Docker while still calling STT locally
+
+Flow:
+- browser streams PCM16 frames → FastAPI WebSocket
+- backend buffers audio
+- on `end`, backend calls `STT_BASE_URL=/transcribe` with a WAV file
+- backend emits `final_transcript` and then calls Ollama with that transcript
+
+Note: if FastAPI runs in Docker (default), `STT_BASE_URL` should usually be
+`http://host.docker.internal:9001` so the container can reach the host bridge.
+
 Suggested Apple Silicon defaults:
 - **LLM (Ollama)**: start with a **7B–8B** instruct model (quality/latency sweet spot).
 - **Embeddings**: SentenceTransformers runs fine on CPU; you can explore MPS acceleration later if needed.
@@ -220,6 +234,19 @@ MVP UI needs:
 - **Realtime voice**:
   - Start with **WebSocket audio frames** from the browser (fast MVP).
   - Upgrade to **WebRTC** if you need best-in-class latency/echo handling later.
+
+#### Current WS voice protocol (v0)
+- Client → Server:
+  - `hello` (with `sample_rate`)
+  - `audio_frame` (base64 PCM16LE)
+  - `end` (finalize + transcribe + respond)
+  - `cancel`
+- Server → Client:
+  - `ready`
+  - `partial_transcript` (currently “listening” stub while recording)
+  - `final_transcript` (real STT text when STT is configured, otherwise stub)
+  - `assistant_message` (Ollama response)
+  - `error` (e.g. `stt_error:*` / `ollama_error:*`)
 
 ### 6) Safety + Privacy Controls (Local-first)
 Even local-only, we want guardrails:

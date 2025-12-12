@@ -20,8 +20,12 @@ class VoiceCancel(BaseModel):
     type: Literal["cancel"]
 
 
+class VoiceEnd(BaseModel):
+    type: Literal["end"]
+
+
 ClientMessage = Annotated[
-    VoiceHello | VoiceAudioFrame | VoiceCancel,
+    VoiceHello | VoiceAudioFrame | VoiceCancel | VoiceEnd,
     Field(discriminator="type"),
 ]
 
@@ -38,6 +42,18 @@ class ServerPartialTranscript(BaseModel):
     type: Literal["partial_transcript"] = "partial_transcript"
     text: str
     bytes_received: int
+
+
+class ServerFinalTranscript(BaseModel):
+    type: Literal["final_transcript"] = "final_transcript"
+    text: str
+    bytes_received: int
+    duration_s: float
+
+
+class ServerAssistantMessage(BaseModel):
+    type: Literal["assistant_message"] = "assistant_message"
+    text: str
 
 
 class ServerError(BaseModel):

@@ -36,8 +36,8 @@ Applies to `apps/web/**` (Next.js App Router).
   - `audio_frame` (binary)
   - `partial_transcript`
   - `final_transcript`
-  - `assistant_token`
-  - `tts_audio_chunk` (binary)
+  - `assistant_message` (or token streaming later)
+  - `error` (surface STT/LLM failures explicitly)
   - `cancel` / `barge_in`
 
 ## Protocol + serialization

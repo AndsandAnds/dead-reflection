@@ -5,10 +5,6 @@
 // shims should be considered a fallback for development environments where
 // package installation hasn't happened yet.
 
-declare module "react" {
-    export type ReactNode = any;
-}
-
 declare module "vitest" {
     export const describe: any;
     export const it: any;
@@ -17,6 +13,11 @@ declare module "vitest" {
 
 declare module "vitest/config" {
     export function defineConfig(config: any): any;
+}
+
+declare module "@vitejs/plugin-react" {
+    const react: any;
+    export default react;
 }
 
 declare module "@testing-library/react" {

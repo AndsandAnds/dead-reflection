@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     # Local model runtime (host-installed Ollama on Apple Silicon recommended)
     OLLAMA_BASE_URL: str
+    OLLAMA_MODEL: str
+    OLLAMA_TIMEOUT_S: float = 30.0
+
+    # Speech-to-text (recommended: host-run whisper.cpp bridge for Metal)
+    STT_BASE_URL: str | None = None
+    STT_TIMEOUT_S: float = 120.0
 
 
 settings = Settings()

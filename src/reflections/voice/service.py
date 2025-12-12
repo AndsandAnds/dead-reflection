@@ -9,12 +9,15 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
 
+from reflections.core.settings import settings
 from reflections.voice.exceptions import VoiceServiceException
 from reflections.voice.repository import VoiceRepository
 from reflections.voice.schemas import (
     ClientMessage,
+    ServerAssistantMessage,
     ServerCancelled,
     ServerError,
+    ServerFinalTranscript,
     ServerPartialTranscript,
     ServerReady,
 )
@@ -23,6 +26,7 @@ from reflections.voice.schemas import (
 @dataclass
 class VoiceSessionState:
     cancelled: bool = False
+    sample_rate: int = 16000
 
 
 def build_ready_message() -> ServerReady:
@@ -33,11 +37,25 @@ def build_cancelled_message() -> ServerCancelled:
     return ServerCancelled()
 
 
-def build_partial_transcript_message(*, bytes_received: int) -> ServerPartialTranscript:
+def build_partial_transcript_message(
+    *, bytes_received: int, duration_s: float
+) -> ServerPartialTranscript:
     return ServerPartialTranscript(
-        text=f"(stub) heard {bytes_received} bytes",
+        text=f"(stub) listening… ~{duration_s:.2f}s",
         bytes_received=bytes_received,
     )
+
+
+def build_final_transcript_message(
+    *, text: str, bytes_received: int, duration_s: float
+) -> ServerFinalTranscript:
+    return ServerFinalTranscript(
+        text=text, bytes_received=bytes_received, duration_s=duration_s
+    )
+
+
+def build_assistant_message(*, text: str) -> ServerAssistantMessage:
+    return ServerAssistantMessage(text=text)
 
 
 _client_msg_adapter = TypeAdapter(ClientMessage)
@@ -66,9 +84,10 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 return
             if repo.bytes_received != last_sent:
                 last_sent = repo.bytes_received
+                duration_s = last_sent / max(1.0, float(state.sample_rate) * 2.0)
                 await websocket.send_json(
                     build_partial_transcript_message(
-                        bytes_received=last_sent
+                        bytes_received=last_sent, duration_s=duration_s
                     ).model_dump()
                 )
 
@@ -104,6 +123,11 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 await websocket.send_json(build_cancelled_message().model_dump())
                 break
 
+            if parsed.type == "hello":
+                if parsed.sample_rate:
+                    state.sample_rate = int(parsed.sample_rate)
+                continue
+
             if parsed.type == "audio_frame":
                 try:
                     audio_bytes = base64.b64decode(parsed.pcm16le_b64)
@@ -111,6 +135,48 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     continue
                 repo.ingest_audio(audio_bytes)
                 continue
+
+            if parsed.type == "end":
+                state.cancelled = True
+                bytes_received = repo.bytes_received
+                duration_s = bytes_received / max(1.0, float(state.sample_rate) * 2.0)
+                transcript = (
+                    f"(stub) user spoke for ~{duration_s:.2f}s ({bytes_received} bytes)"
+                )
+                if settings.STT_BASE_URL:
+                    try:
+                        transcript = await repo.transcribe_audio(
+                            sample_rate=state.sample_rate
+                        )
+                    except Exception as exc:
+                        await websocket.send_json(
+                            ServerError(message=f"stt_error:{exc!s}").model_dump()
+                        )
+                await websocket.send_json(
+                    build_final_transcript_message(
+                        text=transcript,
+                        bytes_received=bytes_received,
+                        duration_s=duration_s,
+                    ).model_dump()
+                )
+
+                try:
+                    reply = await asyncio.wait_for(
+                        repo.generate_assistant_reply(transcript=transcript),
+                        timeout=float(settings.OLLAMA_TIMEOUT_S),
+                    )
+                except Exception as exc:
+                    # Make failures visible to the UI while still returning a stub
+                    # reply.
+                    await websocket.send_json(
+                        ServerError(message=f"ollama_error:{exc!s}").model_dump()
+                    )
+                    reply = "(stub) (ollama unavailable) I heard you."
+
+                await websocket.send_json(
+                    build_assistant_message(text=reply).model_dump()
+                )
+                break
 
             # ignore unknown message types
             continue

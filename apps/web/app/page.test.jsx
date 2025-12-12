@@ -1,15 +1,18 @@
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const redirectMock = vi.fn();
+vi.mock("next/navigation", () => ({
+    redirect: (path) => redirectMock(path),
+}));
 
 import Home from "./page";
 
 describe("Home page", () => {
-    it("renders a heading", () => {
+    it("redirects to /voice", () => {
         render(<Home />);
-        expect(
-            screen.getByRole("heading", { name: /Reflections — Local Avatar AI/i }),
-        ).toBeInTheDocument();
+        expect(redirectMock).toHaveBeenCalledWith("/voice");
     });
 });
 
