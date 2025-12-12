@@ -13,6 +13,19 @@ When implementing backend functionality under `src/reflections/**`, use these la
   - Pydantic request/response models
   - DTOs reused across layers
 
+### Serialization (Pydantic-first)
+- Prefer Pydantic v2 helpers over manual JSON:
+  - parse with `model_validate(...)` / `TypeAdapter(...).validate_python(...)`
+  - emit with `model_dump()`
+- For websockets:
+  - prefer `receive_json()` / `send_json(model.model_dump())`
+  - avoid `json.dumps` / `json.loads` in feature code unless strictly necessary
+
+### IDs
+- Use UUIDv7 for identifiers:
+  - prefer `reflections.commons.ids.uuid7_uuid()` (wraps `uuid6.uuid7()`), store in Postgres as native `uuid`.
+  - use `uuid7_str()` only for display/logging.
+
 ### `exceptions.py` (custom exceptions/constants)
 - Owns:
   - feature-level custom exception types and constants

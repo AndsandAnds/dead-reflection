@@ -121,6 +121,9 @@ The backend is responsible for:
   - `model_dump()` when emitting payloads
 - For websockets, prefer `websocket.receive_json()` + `websocket.send_json(model.model_dump())`
 
+**ID convention**
+- Use **UUIDv7** (time-ordered) for IDs throughout the backend (via `uuid6.uuid7()`).
+
 **Tools/Libraries:**
 - **FastAPI** (HTTP + WebSockets)
 - **Pydantic** (schemas)
@@ -145,6 +148,21 @@ To feel character.ai-like, we need multiple memory layers:
 - **Short-term memory**: recent message window (prompt context)
 - **Long-term memory**: semantic notes about the user + the avatar’s “life” and shared history
 - **Persona memory**: immutable-ish character definition + “facts”
+
+**Our memory decisions (v0)**
+- **Write policy**: automatic (no “remember this” UX)
+  - store **episodic memory cards** (distilled) + **raw recall chunks**
+- **Scope**: hybrid
+  - **user-global** profile memory
+  - **per-avatar** episodic memory
+- **Raw chunking**: by turns (groups of **3–6 turns**)
+- **Embeddings**: SentenceTransformers **`BAAI/bge-small-en-v1.5`** → **384-dim**
+- **Vector search**: **L2-normalized embeddings + inner product** (fast; HNSW + `vector_ip_ops`)
+
+**Memory transparency (UX)**
+- Provide endpoints/UI to:
+  - inspect stored memories
+  - delete memories
 
 **Vector DB (local) options:**
 - **Chroma** (simple, local-first; easiest start)

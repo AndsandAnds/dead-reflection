@@ -19,6 +19,8 @@ dependencies = [
     "pytest>=8.0.0,<9.0.0",
     "requests>=2.32.0,<3.0.0",
     "pydantic-settings>=2.6.0,<3.0.0",
+    "pgvector>=0.3.6,<0.4.0",
+    "uuid6>=2024.7.10",
 ]
 
 [tool.poetry.group.dev.dependencies]

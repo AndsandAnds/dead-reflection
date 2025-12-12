@@ -40,6 +40,14 @@ Applies to `apps/web/**` (Next.js App Router).
   - `tts_audio_chunk` (binary)
   - `cancel` / `barge_in`
 
+## Protocol + serialization
+- Prefer **typed message shapes** and schema validation:
+  - backend uses Pydantic `model_validate(...)` / `TypeAdapter(...).validate_python(...)`
+  - backend emits `send_json(model.model_dump())`
+- Client should:
+  - send JSON objects (not pre-stringified JSON) when possible
+  - keep message schema stable and versionable (additive changes first)
+
 ## Playback + cancellation
 - Use Web Audio API for playback where practical (fine control, quick stop).
 - On barge-in:

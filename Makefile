@@ -1,4 +1,5 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
+.PHONY: migrate revision
 
 help:
 	@echo "Targets:"
@@ -14,6 +15,8 @@ help:
 	@echo "  make test-frontend - run vitest in ui container"
 	@echo "  make precommit-install - install git pre-commit hooks (run locally)"
 	@echo "  make precommit-run     - run all hooks on all files (run locally)"
+	@echo "  make migrate           - apply Alembic migrations (docker compose api)"
+	@echo "  make revision name=... - create new Alembic revision (docker compose api)"
 	@echo "  make db-shell  - psql shell into Postgres"
 	@echo "  make api-shell - shell into API container"
 	@echo "  make ui-shell  - shell into UI container"
@@ -62,5 +65,12 @@ precommit-install:
 
 precommit-run:
 	poetry run pre-commit run -a
+
+# Alembic (runs in the API container so it uses the same environment as the app)
+migrate:
+	docker compose run --rm api poetry run alembic upgrade head
+
+revision:
+	docker compose run --rm api poetry run alembic revision -m "$(name)"
 
 

@@ -33,6 +33,16 @@ alwaysApply: true
 - **Postgres + pgvector** for relational + vector in one DB (local-first simplicity).
 - **SentenceTransformers** for embeddings (decoupled from LLM runtime).
 
+### Memory (v0 decisions)
+- **Write policy**: automatic (no “remember this” UX)
+- **Scope**: hybrid
+  - user-global memory + per-avatar episodic memory
+- **Chunking**:
+  - memory cards (distilled) + raw recall chunks (fallback)
+  - raw chunks grouped by turns (3–6 turns typical)
+- **Embeddings**: SentenceTransformers `BAAI/bge-small-en-v1.5` (384-dim)
+- **Vector search**: L2-normalized vectors + **inner product** (fast) on pgvector (HNSW + `vector_ip_ops`)
+
 ### Backend architecture pattern (required)
 - **`api.py`** layer:
   - FastAPI routing/HTTP concerns only (status codes, request/response models)
@@ -50,6 +60,20 @@ alwaysApply: true
   - DB calls (and/or external API calls) only
   - no error handling
   - returns results and flushes as needed; no commits
+
+### Serialization convention (required)
+- Prefer Pydantic v2 over manual JSON:
+  - `model_validate(...)` / `TypeAdapter(...).validate_python(...)` for parsing
+  - `model_dump()` for emitting payloads
+- For websockets:
+  - prefer `receive_json()` / `send_json(model.model_dump())`
+  - avoid `json.dumps` / `json.loads` in feature code unless strictly necessary
+
+### ID convention (required)
+- Use **UUIDv7** for IDs everywhere (`uuid6.uuid7()`), exposed via:
+  - `reflections.commons.ids.uuid7_uuid()` for DB/API typing (`uuid.UUID`)
+  - `reflections.commons.ids.uuid7_str()` for display/logging
+- Store identifiers in Postgres as **native `uuid`** types; Pydantic models serialize/parse UUIDs automatically in JSON.
 
 ### Realtime voice
 - **STT**: **whisper.cpp + Metal** (Apple Silicon optimized; host-installed preferred).
