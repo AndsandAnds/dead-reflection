@@ -123,5 +123,6 @@ async def run_voice_session(websocket: WebSocket) -> None:
     finally:
         state.cancelled = True
         sender_task.cancel()
-        with contextlib.suppress(Exception):
+        # CancelledError may inherit from BaseException in modern Python.
+        with contextlib.suppress(asyncio.CancelledError):
             await sender_task

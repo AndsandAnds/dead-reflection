@@ -36,7 +36,7 @@ def test_not_found_exception_maps_to_404() -> None:
     assert r.status_code == 404
 
 
-def test_unprocessable_exception_maps_to_422() -> None:
+def test_unprocessable_exception_maps_to_422_content() -> None:
     app = FastAPI()
     configure_global_exception_handlers(app)
 

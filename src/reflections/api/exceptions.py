@@ -19,7 +19,7 @@ def configure_global_exception_handlers(app: FastAPI) -> FastAPI:
         if isinstance(exc, BaseServiceNotFoundException):
             code = status.HTTP_404_NOT_FOUND
         elif isinstance(exc, BaseServiceUnProcessableException):
-            code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            code = status.HTTP_422_UNPROCESSABLE_CONTENT
         else:
             code = status.HTTP_400_BAD_REQUEST
 
