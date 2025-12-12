@@ -32,6 +32,13 @@ services:
       # Ollama is expected to be installed on the macOS host for Metal acceleration.
       # On Docker Desktop, "host.docker.internal" resolves to the host.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:latest}
+      OLLAMA_TIMEOUT_S: ${OLLAMA_TIMEOUT_S:-30}
+      # Host-run speech services (macOS): whisper.cpp and say/afconvert bridges.
+      STT_BASE_URL: ${STT_BASE_URL:-}
+      STT_TIMEOUT_S: ${STT_TIMEOUT_S:-120}
+      TTS_BASE_URL: ${TTS_BASE_URL:-}
+      TTS_TIMEOUT_S: ${TTS_TIMEOUT_S:-30}
     depends_on:
       db:
         condition: service_healthy
