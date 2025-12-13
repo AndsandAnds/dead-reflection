@@ -5,6 +5,7 @@
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
+.PHONY: bridges-preflight check-tts-piper
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -51,8 +52,34 @@ up:
 down:
 	docker compose down
 
-bridges-up: stt-bridge-bg tts-bridge-bg
+bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg
 	@echo "Host bridges: up"
+
+bridges-preflight:
+	@# Validate host dependencies for bridges. Reads from .env if present.
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ "$${TTS_ENGINE:-say}" = "piper" ]; then \
+	  $(MAKE) check-tts-piper; \
+	fi
+
+check-tts-piper:
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	bin="$${PIPER_BIN:-piper}"; \
+	model="$${PIPER_MODEL:-}"; \
+	if ! command -v "$$bin" >/dev/null 2>&1; then \
+	  echo "ERROR: TTS_ENGINE=piper but '$$bin' is not installed / not on PATH."; \
+	  echo "Install Piper CLI (recommended):"; \
+	  echo "  brew install pipx"; \
+	  echo "  pipx install piper-tts"; \
+	  exit 2; \
+	fi; \
+	if [ -z "$$model" ] || [ ! -f "$$model" ]; then \
+	  echo "ERROR: TTS_ENGINE=piper but PIPER_MODEL is not set or does not exist: '$$model'"; \
+	  echo "Set it to a local .onnx voice model path (and keep the matching .onnx.json nearby)."; \
+	  exit 2; \
+	fi
 
 bridges-status:
 	@mkdir -p "$(RUN_DIR)"
