@@ -7,16 +7,16 @@ This is the punch list of what we still need to implement after getting:
 
 ## P0 — Make voice feel “realtime”
 - **Streaming STT**
-  - Emit real `partial_transcript` from STT (not “listening…”)
-  - Decide whether to do: streaming Whisper (incremental decoding) vs small window batching
+  - ✅ Emit best-effort real `partial_transcript` via **small window batching** (when STT is configured)
+  - ⏳ True streaming Whisper (incremental decoding) still pending
 - **VAD + endpointing**
-  - Add VAD (silero-vad or webrtcvad) server-side or client-side
-  - Auto-send `end` when silence threshold triggers (push-to-talk optional fallback)
+  - ✅ Auto-send `end` via a simple **client-side silence timer** (push-to-talk still works)
+  - ⏳ Add real VAD (silero-vad or webrtcvad) client-side or server-side
 - **Barge-in**
   - When mic starts while TTS is playing:
-    - stop playback immediately (UI already does)
-    - send `cancel` to backend
-    - cancel any in-flight LLM/TTS work
+    - ✅ stop playback immediately (UI)
+    - ⏳ send `cancel` to backend automatically on barge-in
+    - ⏳ cancel any in-flight LLM/TTS work (task-level cancellation)
 - **Audio framing**
   - ✅ Moved to **binary WebSocket frames** (raw PCM16LE) with basic backpressure (drop when congested)
   - (legacy) base64 JSON frames still supported for compatibility
