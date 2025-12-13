@@ -122,14 +122,16 @@ make tts-bridge
 ### Option B: Piper (recommended next step)
 Piper is a low-latency local neural TTS. Our bridge can call Piper when enabled.
 
-1) Install Piper (Homebrew):
+1) Install Piper (recommended: `pipx`, since this runs on your host):
 
 ```bash
-brew install piper
+brew install pipx
+pipx install piper-tts
 ```
 
-If Homebrew doesn’t have it on your system, install a Piper binary from upstream releases
-and set `PIPER_BIN` to the full path.
+This installs the `piper` CLI via the official project ([`OHF-Voice/piper1-gpl`](https://github.com/OHF-Voice/piper1-gpl)).
+
+Alternative (if you don’t want `pipx`): `pip install piper-tts` into a dedicated venv.
 
 2) Download a Piper voice model (expects **two files**: `.onnx` + matching `.onnx.json`):
 
