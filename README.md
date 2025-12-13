@@ -146,6 +146,10 @@ mkdir -p ~/piper-models
 #   en_US-lessac-medium.onnx.json
 ```
 
+Voice list + download links:
+- Voice list: [`VOICES.md`](https://raw.githubusercontent.com/OHF-Voice/piper1-gpl/main/docs/VOICES.md)
+- Downloads: `https://huggingface.co/rhasspy/piper-voices/tree/main` (linked from `VOICES.md`)
+
 3) Run the bridge with Piper enabled:
 
 ```bash
