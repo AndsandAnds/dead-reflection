@@ -89,9 +89,9 @@ Then in the UI:
   - backend emits `final_transcript` (real STT text when STT is configured)
   - backend calls Ollama with that text and emits `assistant_message`
 
-## Voice (TTS) setup (macOS `say`)
-We also support local **TTS** by running a small host bridge that uses macOS `say`
-and returns a 16kHz PCM WAV that the browser plays via WebAudio.
+## Voice (TTS) setup (macOS `say` or Piper)
+We support local **TTS** by running a small host bridge that returns a **16kHz PCM WAV**
+the browser can play via WebAudio.
 
 1) Run the TTS bridge (host):
 
@@ -108,7 +108,47 @@ TTS_TIMEOUT_S=30
 
 Then in the UI:
 - Start mic → speak → Stop (transcribe)
-  - backend emits `tts_audio` and the UI plays the spoken reply
+  - backend emits `tts_chunk` (preferred) and the UI plays the spoken reply
+
+### Option A: macOS `say` (default)
+No extra installs needed. Optionally set a default voice for the bridge:
+
+```bash
+export TTS_ENGINE=say
+export TTS_VOICE="Samantha" # optional
+make tts-bridge
+```
+
+### Option B: Piper (recommended next step)
+Piper is a low-latency local neural TTS. Our bridge can call Piper when enabled.
+
+1) Install Piper (Homebrew):
+
+```bash
+brew install piper
+```
+
+If Homebrew doesn’t have it on your system, install a Piper binary from upstream releases
+and set `PIPER_BIN` to the full path.
+
+2) Download a Piper voice model (expects **two files**: `.onnx` + matching `.onnx.json`):
+
+```bash
+mkdir -p ~/piper-models
+# Example filenames (pick any model you like):
+#   en_US-lessac-medium.onnx
+#   en_US-lessac-medium.onnx.json
+```
+
+3) Run the bridge with Piper enabled:
+
+```bash
+export TTS_ENGINE=piper
+export PIPER_MODEL="$HOME/piper-models/en_US-lessac-medium.onnx"
+export PIPER_BIN=piper          # optional if it's on PATH
+export PIPER_SPEAKER=0          # optional (multi-speaker models)
+make tts-bridge
+```
 
 Stop it:
 
