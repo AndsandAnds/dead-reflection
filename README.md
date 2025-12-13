@@ -110,7 +110,7 @@ STT_TIMEOUT_S=120
 ```
 
 Then in the UI:
-- Start mic → speak → Stop (transcribe)
+- Start mic (or **hold Space**) → speak → Stop (transcribe) (or **release Space**)
   - backend emits `final_transcript` (real STT text when STT is configured)
   - backend calls Ollama with that text and emits `assistant_message`
 
@@ -132,7 +132,7 @@ TTS_TIMEOUT_S=30
 ```
 
 Then in the UI:
-- Start mic → speak → Stop (transcribe)
+- Start mic (or **hold Space**) → speak → Stop (transcribe) (or **release Space**)
   - backend emits `tts_chunk` (preferred) and the UI plays the spoken reply
 
 ### Option A: macOS `say` (default)
