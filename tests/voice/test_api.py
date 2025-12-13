@@ -12,6 +12,11 @@ def test_voice_ws_ready_and_cancel(client: TestClient) -> None:
         msg = ws.receive_json()
         assert msg["type"] == "cancelled"
 
+        ws.send_text("not-json")
+        msg = ws.receive_json()
+        assert msg["type"] == "error"
+        assert msg["message"] in {"invalid_json", "invalid_message"}
+
 
 def test_voice_ws_binary_audio_emits_partial(client: TestClient) -> None:
     with client.websocket_connect("/ws/voice") as ws:

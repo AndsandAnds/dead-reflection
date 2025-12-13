@@ -19,19 +19,6 @@ function rmsLevel(frame: Float32Array): number {
   return Math.sqrt(mean);
 }
 
-function pcm16Base64FromFloat32(input: Float32Array): string {
-  const buffer = new ArrayBuffer(input.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i]));
-    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-  }
-  const bytes = new Uint8Array(buffer);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
 function pcm16leBufferFromFloat32(input: Float32Array): ArrayBuffer {
   const buffer = new ArrayBuffer(input.length * 2);
   const view = new DataView(buffer);
@@ -361,16 +348,16 @@ export default function VoicePage() {
       if (ws.readyState !== WebSocket.OPEN) return;
       const frame = ev.data as Float32Array;
       if (!frame || (frame as any).length === 0) return;
+      const lvl = rmsLevel(frame);
       const now = performance.now();
       if (now - lastUiTickMsRef.current > 50) {
         lastUiTickMsRef.current = now;
-        setInputLevel(clamp01(rmsLevel(frame) * 3.0));
+        setInputLevel(clamp01(lvl * 3.0));
       }
 
       // Simple endpointing (silence timer): if user is quiet for a bit, auto-end.
       // This keeps a push-to-talk UX (Start mic / Stop) but makes it feel more
       // "hands free" for short utterances.
-      const lvl = rmsLevel(frame);
       const speechThreshold = 0.02;
       if (lvl >= speechThreshold) lastSpeechMsRef.current = now;
       if (
