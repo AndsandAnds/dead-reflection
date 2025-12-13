@@ -5,7 +5,7 @@
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
-.PHONY: bridges-preflight check-tts-piper
+.PHONY: bridges-preflight check-tts-piper check-stt-whisper
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -59,6 +59,9 @@ bridges-preflight:
 	@# Validate host dependencies for bridges. Reads from .env if present.
 	@set -e; \
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -n "$${STT_BASE_URL:-}" ]; then \
+	  $(MAKE) check-stt-whisper; \
+	fi; \
 	if [ "$${TTS_ENGINE:-say}" = "piper" ]; then \
 	  $(MAKE) check-tts-piper; \
 	fi
@@ -79,6 +82,25 @@ check-tts-piper:
 	if [ -z "$$model" ] || [ ! -f "$$model" ]; then \
 	  echo "ERROR: TTS_ENGINE=piper but PIPER_MODEL is not set or does not exist: '$$model'"; \
 	  echo "Set it to a local .onnx voice model path (and keep the matching .onnx.json nearby)."; \
+	  exit 2; \
+	fi
+
+check-stt-whisper:
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	bin="$${WHISPER_CPP_BIN:-whisper-cli}"; \
+	model="$${WHISPER_CPP_MODEL:-}"; \
+	if ! command -v "$$bin" >/dev/null 2>&1; then \
+	  echo "ERROR: STT_BASE_URL is set but WHISPER_CPP_BIN is not available: '$$bin'"; \
+	  echo "Install whisper.cpp (Homebrew):"; \
+	  echo "  brew install whisper-cpp"; \
+	  echo "Then set WHISPER_CPP_BIN (example):"; \
+	  echo "  WHISPER_CPP_BIN=/opt/homebrew/bin/whisper-cli"; \
+	  exit 2; \
+	fi; \
+	if [ -z "$$model" ] || [ ! -f "$$model" ]; then \
+	  echo "ERROR: STT_BASE_URL is set but WHISPER_CPP_MODEL is not set or does not exist: '$$model'"; \
+	  echo "Set it to a local whisper model path (e.g. ~/whisper-models/ggml-base.en.bin)."; \
 	  exit 2; \
 	fi
 
@@ -216,7 +238,7 @@ stt-bridge-bg:
 	else \
 	  rm -f "$(STT_PID)"; \
 	  echo "Starting stt-bridge in background (logs: $(STT_LOG))"; \
-	  nohup $(MAKE) stt-bridge >"$(STT_LOG)" 2>&1 & echo $$! >"$(STT_PID)"; \
+	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) stt-bridge' >"$(STT_LOG)" 2>&1 & echo $$! >"$(STT_PID)"; \
 	fi
 
 tts-bridge-bg:
@@ -227,7 +249,7 @@ tts-bridge-bg:
 	else \
 	  rm -f "$(TTS_PID)"; \
 	  echo "Starting tts-bridge in background (logs: $(TTS_LOG))"; \
-	  nohup $(MAKE) tts-bridge >"$(TTS_LOG)" 2>&1 & echo $$! >"$(TTS_PID)"; \
+	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) tts-bridge' >"$(TTS_LOG)" 2>&1 & echo $$! >"$(TTS_PID)"; \
 	fi
 
 # ---------------------------------------------------------------------------

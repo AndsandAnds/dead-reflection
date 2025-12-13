@@ -76,6 +76,14 @@ export WHISPER_CPP_MODEL="$HOME/whisper-models/ggml-base.en.bin"
 make stt-bridge
 ```
 
+If you’re using `make up` (which starts bridges automatically), put these in `.env`
+instead so the background bridge process can read them:
+
+```bash
+WHISPER_CPP_BIN=/opt/homebrew/bin/whisper-cli
+WHISPER_CPP_MODEL=/Users/once/whisper-models/ggml-base.en.bin
+```
+
 4) Configure `.env` so the API uses the bridge:
 
 ```bash
