@@ -6,12 +6,17 @@ import json
 import time
 from array import array
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect  # type: ignore[import-not-found]
 from pydantic import TypeAdapter  # type: ignore[import-not-found]
 
+from reflections.commons.logging import logger
+from reflections.core.db import database_manager
 from reflections.core.settings import settings
+from reflections.memory.schemas import Turn
+from reflections.memory.service import MemoryService
 from reflections.voice.exceptions import VoiceServiceException
 from reflections.voice.repository import VoiceRepository
 from reflections.voice.schemas import (
@@ -81,6 +86,24 @@ def build_done_message() -> ServerDone:
 
 
 _client_msg_adapter = TypeAdapter(ClientMessage)
+
+
+@lru_cache
+def get_memory_service() -> MemoryService:
+    return MemoryService.create()
+
+
+def should_store_turns(turns: list[Turn]) -> bool:
+    # Basic guardrails v0: skip empty/placeholder audio.
+    joined = " ".join(t.content.strip() for t in turns if t.content)
+    if not joined:
+        return False
+    low = joined.lower()
+    if "[blank_audio]" in low:
+        return False
+    if low.startswith("(stub)"):
+        return False
+    return True
 
 
 def parse_client_message(payload: dict[str, Any]) -> ClientMessage:
@@ -186,6 +209,9 @@ async def run_voice_session(websocket: WebSocket) -> None:
     """
     repo = VoiceRepository()
     state = VoiceSessionState()
+
+    # Voice sessions can optionally write to Postgres (memory/conversation).
+    await database_manager.initialize()
 
     send_lock = asyncio.Lock()
     finalize_lock = asyncio.Lock()
@@ -323,6 +349,26 @@ async def run_voice_session(websocket: WebSocket) -> None:
             reply = assistant_text.strip()
             await send(build_assistant_message(text=reply))
             state.messages.append({"role": "assistant", "content": reply})
+
+            # Automatic episodic memory ingest (opt-in/offline by default).
+            if settings.MEMORY_AUTO_INGEST:
+                try:
+                    turns = [
+                        Turn(role="user", content=transcript),
+                        Turn(role="assistant", content=reply),
+                    ]
+                    if should_store_turns(turns):
+                        async with database_manager.session() as session:
+                            await get_memory_service().ingest_episodic(
+                                session,
+                                user_id=settings.DEFAULT_USER_ID,
+                                avatar_id=settings.DEFAULT_AVATAR_ID,
+                                turns=turns,
+                                chunk_turn_window=settings.MEMORY_CHUNK_TURN_WINDOW,
+                            )
+                except Exception as exc:
+                    # Don't fail the voice turn if memory ingestion fails.
+                    logger.info("memory_auto_ingest_failed: %s", exc)
 
             await send(build_done_message())
         except asyncio.CancelledError:

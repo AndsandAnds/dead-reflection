@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic_settings import (  # type: ignore[import-not-found]
     BaseSettings,
     SettingsConfigDict,
@@ -40,6 +42,14 @@ class Settings(BaseSettings):
     # Text-to-speech (recommended: host-run bridge on macOS)
     TTS_BASE_URL: str | None = None
     TTS_TIMEOUT_S: float = 30.0
+
+    # Identity defaults (until the user/avatar system is fully implemented)
+    DEFAULT_USER_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
+    DEFAULT_AVATAR_ID: UUID | None = UUID("00000000-0000-0000-0000-000000000002")
+
+    # Memory integration
+    MEMORY_AUTO_INGEST: bool = True
+    MEMORY_CHUNK_TURN_WINDOW: int = 2
 
 
 settings = Settings()

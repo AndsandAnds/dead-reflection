@@ -173,6 +173,76 @@ def test_voice_ws_silent_frames_do_not_cancel_finalize(
         assert assistant_count == 1
 
 
+def test_voice_ws_auto_ingests_memory_when_enabled(
+    client: TestClient, monkeypatch
+) -> None:
+    """
+    Smoke/regression: when MEMORY_AUTO_INGEST is enabled, voice turns attempt to
+    write to memory service.
+    """
+    from reflections.voice import service as voice_service
+
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", None)
+    monkeypatch.setattr(voice_service.settings, "MEMORY_AUTO_INGEST", True)
+    monkeypatch.setattr(voice_service.settings, "MEMORY_CHUNK_TURN_WINDOW", 2)
+
+    class FastRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            return "hello"
+
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            yield "ok"
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", FastRepo)
+
+    calls: list[object] = []
+
+    class FakeMemSvc:
+        async def ingest_episodic(
+            self, session, *, user_id, avatar_id, turns, chunk_turn_window
+        ):  # type: ignore[no-untyped-def]
+            calls.append(
+                (
+                    str(user_id),
+                    str(avatar_id) if avatar_id else None,
+                    turns,
+                    chunk_turn_window,
+                )
+            )
+            return ([], 0, 0)
+
+    # Avoid loading sentence-transformers in unit tests.
+    monkeypatch.setattr(voice_service, "get_memory_service", lambda: FakeMemSvc())
+
+    class DummySession:
+        async def __aenter__(self):  # type: ignore[no-untyped-def]
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+            return False
+
+    async def _init():  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(voice_service.database_manager, "initialize", _init)
+    monkeypatch.setattr(
+        voice_service.database_manager, "session", lambda: DummySession()
+    )
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_bytes(b"\x00\x01" * 1600)
+        ws.send_json({"type": "end"})
+        # Drain until done.
+        for _ in range(50):
+            msg = ws.receive_json()
+            if msg.get("type") == "done":
+                break
+
+    assert len(calls) == 1
+
+
 def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) -> None:
     import asyncio
 

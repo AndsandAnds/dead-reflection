@@ -3,7 +3,7 @@
 This is the punch list of what we still need to implement after getting:
 - browser mic → FastAPI WS → **whisper.cpp STT** (host bridge)
 - Ollama response with **multi-turn context** (via `/api/chat`)
-- optional **TTS playback** (host bridge using macOS `say`)
+- optional **TTS playback** (host bridge using macOS `say` or Piper)
 
 ## P0 — Make voice feel “realtime”
 - **Streaming STT**

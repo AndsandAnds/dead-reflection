@@ -111,7 +111,9 @@ afterEach(() => {
 describe("Voice page", () => {
     it("renders a heading", () => {
         render(<VoicePage />);
-        expect(screen.getByRole("heading", { name: /Voice/i })).toBeInTheDocument();
+        expect(
+            screen.getByRole("heading", { name: /Lumina|Voice/i })
+        ).toBeInTheDocument();
     });
 
     it("opens a WS and sends hello + binary audio frames", async () => {

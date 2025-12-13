@@ -626,7 +626,7 @@ export default function VoicePage() {
 
   return (
     <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ marginTop: 0 }}>Voice</h1>
+      <h1 style={{ marginTop: 0 }}>Lumina</h1>
       <p style={{ color: "#444" }}>
         MVP voice streaming to FastAPI WebSocket (STT currently stubbed
         server-side).
@@ -651,6 +651,9 @@ export default function VoicePage() {
           </>
         )}
         <div style={{ fontSize: 12, color: "#666" }}>WS: {wsUrl}</div>
+        <a href="/memory" style={{ fontSize: 12 }}>
+          Memory
+        </a>
       </section>
 
       <section style={{ marginTop: 16, display: "flex", gap: 16 }}>
