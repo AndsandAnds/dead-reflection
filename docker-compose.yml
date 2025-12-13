@@ -2,11 +2,10 @@ name: reflections
 
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-reflections}
       POSTGRES_USER: ${POSTGRES_USER:-reflections}
-      # Require password from local environment / .env (do not hardcode secrets)
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
