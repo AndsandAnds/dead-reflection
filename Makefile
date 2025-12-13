@@ -1,7 +1,13 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
 .PHONY: migrate revision
-.PHONY: stt-bridge
-.PHONY: tts-bridge
+.PHONY: stt-bridge tts-bridge
+.PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg
+
+RUN_DIR := run
+STT_PID := $(RUN_DIR)/stt-bridge.pid
+TTS_PID := $(RUN_DIR)/tts-bridge.pid
+STT_LOG := $(RUN_DIR)/stt-bridge.log
+TTS_LOG := $(RUN_DIR)/tts-bridge.log
 
 help:
 	@echo "Targets:"
@@ -21,15 +27,48 @@ help:
 	@echo "  make revision name=... - create new Alembic revision (docker compose api)"
 	@echo "  make stt-bridge        - run host STT bridge (whisper.cpp) on :9001"
 	@echo "  make tts-bridge        - run host TTS bridge (macOS say) on :9002"
+	@echo "  make bridges-up        - start host STT+TTS bridges in background (PID files in ./run)"
+	@echo "  make bridges-down      - stop host STT+TTS bridges"
+	@echo "  make bridges-status    - show whether host bridges are running"
 	@echo "  make db-shell  - psql shell into Postgres"
 	@echo "  make api-shell - shell into API container"
 	@echo "  make ui-shell  - shell into UI container"
 
 up:
 	docker compose up -d --build
+	@$(MAKE) bridges-up
 
 down:
 	docker compose down
+
+bridges-up: stt-bridge-bg tts-bridge-bg
+	@echo "Host bridges: up"
+
+bridges-status:
+	@mkdir -p "$(RUN_DIR)"
+	@set -e; \
+	for n in stt tts; do \
+	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
+	  if [ -f "$$pidfile" ] && kill -0 "$$(cat "$$pidfile")" 2>/dev/null; then \
+	    echo "$$n: running (pid $$(cat "$$pidfile"))"; \
+	  else \
+	    echo "$$n: not running"; \
+	  fi; \
+	done
+
+bridges-down:
+	@set -e; \
+	for n in stt tts; do \
+	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
+	  if [ -f "$$pidfile" ]; then \
+	    pid="$$(cat "$$pidfile")"; \
+	    if kill -0 "$$pid" 2>/dev/null; then \
+	      echo "Stopping $$n bridge (pid $$pid)"; \
+	      kill "$$pid" 2>/dev/null || true; \
+	    fi; \
+	    rm -f "$$pidfile"; \
+	  fi; \
+	done
 
 build:
 	docker compose build
@@ -82,5 +121,27 @@ stt-bridge:
 
 tts-bridge:
 	poetry run python -m uvicorn reflections.tts_bridge.main:app --host 0.0.0.0 --port 9002
+
+stt-bridge-bg:
+	@mkdir -p "$(RUN_DIR)"
+	@set -e; \
+	if [ -f "$(STT_PID)" ] && kill -0 "$$(cat "$(STT_PID)")" 2>/dev/null; then \
+	  echo "stt-bridge already running (pid $$(cat "$(STT_PID)"))"; \
+	else \
+	  rm -f "$(STT_PID)"; \
+	  echo "Starting stt-bridge in background (logs: $(STT_LOG))"; \
+	  nohup $(MAKE) stt-bridge >"$(STT_LOG)" 2>&1 & echo $$! >"$(STT_PID)"; \
+	fi
+
+tts-bridge-bg:
+	@mkdir -p "$(RUN_DIR)"
+	@set -e; \
+	if [ -f "$(TTS_PID)" ] && kill -0 "$$(cat "$(TTS_PID)")" 2>/dev/null; then \
+	  echo "tts-bridge already running (pid $$(cat "$(TTS_PID)"))"; \
+	else \
+	  rm -f "$(TTS_PID)"; \
+	  echo "Starting tts-bridge in background (logs: $(TTS_LOG))"; \
+	  nohup $(MAKE) tts-bridge >"$(TTS_LOG)" 2>&1 & echo $$! >"$(TTS_PID)"; \
+	fi
 
 
