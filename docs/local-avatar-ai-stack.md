@@ -265,10 +265,10 @@ MVP UI needs:
 - Browser sends device-rate PCM16LE; backend **standardizes to 16kHz mono PCM16** before STT.
 
 ### 6) Safety + Privacy Controls (Local-first)
-Even local-only, we want guardrails:
-- “Do not store sensitive info” memory filters
-- per-avatar memory policies (strict vs permissive)
-- data export/delete tools
+Local-only operation: we prioritize transparency and user control over “sensitive info” filtering.
+- Memory inspect/delete tools (so the user can see and remove what’s stored)
+- Per-avatar memory policies (strict vs permissive) (optional)
+- Data export/delete tools
 - local encryption at rest (optional v1)
 
 ## Open-Source Model Choices (Chat LLM)

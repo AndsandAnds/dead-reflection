@@ -38,7 +38,7 @@ This is the punch list of what we still need to implement after getting:
   - Replay context into the voice session on reconnect
 - **Memory write policy**
   - Automatically ingest episodic memory from voice transcripts
-  - Add guardrails for sensitive info (do-not-store filter)
+  - (Decision) No sensitive-info filter required for local-only operation
 - **“Inspect/Delete memory” UX**
   - Add a basic UI to browse and delete stored memories
 
