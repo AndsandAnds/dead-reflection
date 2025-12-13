@@ -5,7 +5,7 @@ Runs a character.ai-style “avatar AI” locally on Apple Silicon. **No data le
 ## Stack (current)
 - **Frontend**: Next.js (App Router)
 - **Backend**: FastAPI + PydanticAI (agent orchestration)
-- **DB**: Postgres + pgvector (Docker)
+- **DB**: Postgres **18** + pgvector (Docker)
 - **Embeddings**: SentenceTransformers
 - **LLM runtime**: Ollama (**host-installed on macOS for Metal**; containers call `host.docker.internal`)
 - **STT**: whisper.cpp + Metal (**host-installed**) via a small local STT bridge (`make stt-bridge`)
@@ -36,6 +36,15 @@ cp env.example .env
 
 ```bash
 make up
+```
+
+If you upgraded Postgres major versions (e.g. 16 → 18) and the DB won’t start,
+wipe the dev volume:
+
+```bash
+docker compose down -v
+make up
+make migrate
 ```
 
 3) Open:

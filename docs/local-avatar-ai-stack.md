@@ -392,11 +392,20 @@ We can run a small set of services:
 - **ui**: **Next.js** frontend
 - **model**: **host-installed Ollama** (recommended on Apple Silicon for Metal) or a container (CPU-only)
 - **vector-db**: Chroma or Qdrant
-- **db**: SQLite (in api volume) or Postgres container
+- **db**: SQLite (in api volume) or **Postgres 18 + pgvector** container
 
 Key privacy defaults:
 - bind to **127.0.0.1** only (not `0.0.0.0`) unless you explicitly want LAN access
 - disable logs that persist full prompts unless you opt in
+
+### Postgres 18 note (Docker volumes)
+Postgres 18+ Docker images expect the data volume mounted at **`/var/lib/postgresql`**
+(not `/var/lib/postgresql/data`) so data lives in a major-version subdirectory.
+This makes future major upgrades safer.
+
+For dev, if you upgrade PG major versions and the DB fails to start, wiping the
+volume is the fastest fix:
+- `docker compose down -v`
 
 ## MVP Feature Set (Suggested)
 - Single avatar with:
