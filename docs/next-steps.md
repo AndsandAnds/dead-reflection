@@ -49,6 +49,9 @@ This is the punch list of what we still need to implement after getting:
 - **Prompting**
   - System prompt templates (persona + style + safety)
   - Tool routing via PydanticAI
+- **“Lumina” assistant identity**
+  - Add a default assistant persona called **Lumina** (personal assistant) via system prompt + UI copy
+  - Later: fine-tune/LoRA the `llama3.2` base into a “Lumina” checkpoint once we migrate to **vLLM**
 
 ## P1 — Reliability + developer UX
 - **Health checks**
