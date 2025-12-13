@@ -128,6 +128,51 @@ def test_voice_ws_end_is_idempotent_no_duplicate_assistant(
         assert assistant_count == 1
 
 
+def test_voice_ws_silent_frames_do_not_cancel_finalize(
+    client: TestClient, monkeypatch
+) -> None:
+    """
+    Regression: continuous silent mic frames should not cancel finalize/LLM work.
+    """
+    from reflections.voice import service as voice_service
+
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", None)
+
+    class SlowRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            return "hello"
+
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            # Simulate a small delay so there's time for "silent frames" to arrive
+            # while finalizing.
+            import asyncio
+
+            await asyncio.sleep(0.2)
+            yield "ok"
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", SlowRepo)
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_bytes(b"\x00\x01" * 1600)
+        ws.send_json({"type": "end"})
+
+        # Keep streaming silence while the turn finalizes.
+        for _ in range(10):
+            ws.send_bytes(b"\x00\x00" * 800)
+
+        assistant_count = 0
+        for _ in range(50):
+            msg = ws.receive_json()
+            if msg.get("type") == "assistant_message":
+                assistant_count += 1
+            if msg.get("type") == "done":
+                break
+
+        assert assistant_count == 1
+
+
 def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) -> None:
     import asyncio
 

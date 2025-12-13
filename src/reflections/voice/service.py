@@ -461,12 +461,20 @@ async def run_voice_session(websocket: WebSocket) -> None:
             if isinstance(event, dict) and event.get("bytes") is not None:
                 audio_bytes = event.get("bytes")
                 if isinstance(audio_bytes, bytes | bytearray):
-                    # Barge-in: if we're processing a turn, cancel it immediately.
-                    if state.turn_task and not state.turn_task.done():
+                    level = rms_pcm16le(bytes(audio_bytes))
+
+                    # When finalizing a turn, ignore silence/ambient frames so we
+                    # don't cancel the turn just because the mic is still
+                    # streaming. Only treat *speech-level* frames as barge-in.
+                    if state.finalizing and level < 0.02:
+                        continue
+
+                    # Barge-in: only cancel in-flight work when speech is detected.
+                    if state.turn_task and not state.turn_task.done() and level >= 0.02:
                         await cancel_turn(reset_audio=True)
                     if not state.recording:
                         state.vad_started_monotonic = time.monotonic()
-                    if rms_pcm16le(bytes(audio_bytes)) >= 0.02:
+                    if level >= 0.02:
                         state.vad_last_speech_monotonic = time.monotonic()
                     state.recording = True
                     repo.ingest_audio(bytes(audio_bytes))
