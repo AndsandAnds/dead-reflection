@@ -26,8 +26,8 @@ This is the punch list of what we still need to implement after getting:
 ## P0 — TTS quality + latency
 - ✅ **Piper option added** to the host TTS bridge (switch with `TTS_ENGINE=piper`)
 - **Streaming TTS**
-  - ✅ Changed to chunked audio messages (`tts_chunk`) + client-side queue playback
-  - ✅ `cancel` now flushes queued audio and stops playback
+  - ✅ TTS consumes the **LLM stream**: we synthesize and play `tts_chunk` progressively while tokens arrive
+  - ✅ `cancel` flushes queued audio and stops playback
 - **Voice selection**
   - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
   - ⏳ Persist per-avatar voice config in DB (move into the avatar/profile system)

@@ -16,6 +16,7 @@ from reflections.voice.exceptions import VoiceServiceException
 from reflections.voice.repository import VoiceRepository
 from reflections.voice.schemas import (
     ClientMessage,
+    ServerAssistantDelta,
     ServerAssistantMessage,
     ServerCancelled,
     ServerDone,
@@ -128,6 +129,54 @@ def chunk_text_for_tts(text: str, *, max_chars: int = 180) -> list[str]:
     return parts
 
 
+def pop_streaming_tts_chunks(
+    buffer: str, *, max_chars: int = 180, min_chars: int = 40
+) -> tuple[list[str], str]:
+    """
+    Incremental TTS chunker for streamed assistant text.
+
+    We want to start speaking early, but avoid synthesizing tiny fragments.
+    Strategy:
+    - Prefer cutting at sentence boundaries (. ! ? or newline) once buffer is
+      big enough.
+    - Otherwise, cut at a space near max_chars.
+    """
+    buf = buffer.replace("\r", "")
+    chunks: list[str] = []
+
+    while True:
+        cleaned = buf.strip()
+        if len(cleaned) < min_chars:
+            break
+
+        # Sentence boundary cut.
+        cut_idx = -1
+        for ch in (".", "!", "?", "\n"):
+            i = buf.rfind(ch, 0, min(len(buf), max_chars) + 1)
+            cut_idx = max(cut_idx, i)
+        if cut_idx != -1:
+            chunk = buf[: cut_idx + 1].strip()
+            buf = buf[cut_idx + 1 :]
+            if chunk:
+                chunks.append(chunk)
+            continue
+
+        # Fallback: split near max_chars.
+        if len(buf) > max_chars:
+            i = buf.rfind(" ", 0, max_chars + 1)
+            if i == -1:
+                i = max_chars
+            chunk = buf[:i].strip()
+            buf = buf[i:]
+            if chunk:
+                chunks.append(chunk)
+            continue
+
+        break
+
+    return chunks, buf
+
+
 async def run_voice_session(websocket: WebSocket) -> None:
     """
     Service-layer voice session loop.
@@ -162,6 +211,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
         bytes_received = len(pcm_snapshot)
         duration_s = bytes_received / max(1.0, float(sample_rate) * 2.0)
 
+        tts_task: asyncio.Task[None] | None = None
         try:
             transcript = (
                 f"(stub) user spoke for ~{duration_s:.2f}s ({bytes_received} bytes)"
@@ -180,42 +230,68 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
             state.messages.append({"role": "user", "content": transcript})
 
+            # Stream assistant reply and feed TTS as text arrives.
+            assistant_text = ""
+            tts_buffer = ""
+            tts_seq = 0
+            tts_q: asyncio.Queue[str | None] | None = None
+
+            async def tts_consumer() -> None:
+                nonlocal tts_seq
+                assert tts_q is not None
+                while True:
+                    item = await tts_q.get()
+                    if item is None:
+                        return
+                    wav_bytes = await repo.synthesize_tts_wav(text=item)
+                    await send(
+                        ServerTtsChunk(
+                            seq=tts_seq,
+                            wav_b64=repo.wav_bytes_to_b64(wav_bytes),
+                            is_last=False,
+                        )
+                    )
+                    tts_seq += 1
+
+            if settings.TTS_BASE_URL:
+                tts_q = asyncio.Queue()
+                tts_task = asyncio.create_task(tts_consumer())
+
             try:
-                reply = await asyncio.wait_for(
-                    repo.generate_assistant_reply_chat(messages=state.messages),
-                    timeout=float(settings.OLLAMA_TIMEOUT_S),
-                )
+                async for delta in repo.stream_assistant_reply_chat(
+                    messages=state.messages
+                ):
+                    assistant_text += delta
+                    await send(ServerAssistantDelta(delta=delta))
+
+                    if settings.TTS_BASE_URL and tts_q is not None:
+                        tts_buffer += delta
+                        ready, tts_buffer = pop_streaming_tts_chunks(tts_buffer)
+                        for chunk in ready:
+                            await tts_q.put(chunk)
             except Exception as exc:
                 await send(ServerError(message=f"ollama_error:{exc!s}"))
-                reply = "(stub) (ollama unavailable) I heard you."
+                assistant_text = "(stub) (ollama unavailable) I heard you."
 
+            # Flush remaining TTS buffer (if any).
+            if settings.TTS_BASE_URL and tts_q is not None:
+                tail = tts_buffer.strip()
+                if tail:
+                    await tts_q.put(tail)
+                await tts_q.put(None)
+                if tts_task is not None:
+                    await tts_task
+
+            reply = assistant_text.strip()
             await send(build_assistant_message(text=reply))
             state.messages.append({"role": "assistant", "content": reply})
 
-            # "Streaming-like" TTS: synthesize chunks and send sequentially.
-            if settings.TTS_BASE_URL:
-                chunks = chunk_text_for_tts(reply)
-                for i, chunk in enumerate(chunks):
-                    wav_bytes = await repo.synthesize_tts_wav(text=chunk)
-                    await send(
-                        ServerTtsChunk(
-                            seq=i,
-                            wav_b64=repo.wav_bytes_to_b64(wav_bytes),
-                            is_last=(i == len(chunks) - 1),
-                        )
-                    )
-                # Back-compat: also emit the old single-message form for clients
-                # that haven't been updated yet (first chunk only).
-                if chunks:
-                    wav_bytes = await repo.synthesize_tts_wav(text=chunks[0])
-                    await send(
-                        build_tts_audio_message(
-                            wav_b64=repo.wav_bytes_to_b64(wav_bytes)
-                        )
-                    )
-
             await send(build_done_message())
         except asyncio.CancelledError:
+            if tts_task is not None and not tts_task.done():
+                tts_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await tts_task
             raise
         except Exception as exc:
             await send(ServerError(message=f"turn_error:{exc!s}"))
@@ -350,7 +426,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
             if isinstance(event, dict) and event.get("bytes") is not None:
                 audio_bytes = event.get("bytes")
-                if isinstance(audio_bytes, (bytes, bytearray)):
+                if isinstance(audio_bytes, bytes | bytearray):
                     # Barge-in: if we're processing a turn, cancel it immediately.
                     if state.turn_task and not state.turn_task.done():
                         await cancel_turn(reset_audio=True)

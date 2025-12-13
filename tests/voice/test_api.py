@@ -33,12 +33,15 @@ def test_voice_ws_binary_audio_emits_partial(client: TestClient, monkeypatch) ->
     # Make this test deterministic and fast: no real STT/Ollama/TTS calls.
     from reflections.voice import service as voice_service
 
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", None)
+
     class FastRepo(voice_service.VoiceRepository):
         async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
             return "hello world"
 
-        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
-            return "hi!"
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            yield "hi"
+            yield "!"
 
         async def synthesize_tts_wav(self, *, text: str, voice=None):  # type: ignore[override]
             raise RuntimeError("tts disabled in unit test")
@@ -92,9 +95,9 @@ def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) 
     from reflections.voice import service as voice_service
 
     class SlowRepo(voice_service.VoiceRepository):
-        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
             await asyncio.sleep(2.0)
-            return "hello"
+            yield "hello"
 
     monkeypatch.setattr(voice_service, "VoiceRepository", SlowRepo)
 
@@ -129,8 +132,9 @@ def test_voice_ws_emits_tts_chunks_when_tts_configured(
         async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
             return "hello"
 
-        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
-            return "hello there"
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            yield "hello "
+            yield "there."
 
         async def synthesize_tts_wav(self, *, text: str, voice=None):  # type: ignore[override]
             # Dummy bytes; backend just base64-encodes.

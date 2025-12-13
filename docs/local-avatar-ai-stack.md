@@ -249,13 +249,15 @@ MVP UI needs:
   - **binary WS frames**: raw **PCM16LE** mono audio (no JSON wrapper per frame)
   - `end` (finalize + transcribe + respond)
   - `cancel`
-  - (legacy) `audio_frame` (base64 PCM16LE) is still supported for back-compat
+  - (legacy) `audio_frame` (base64 PCM16LE) is still supported for back-compatibility
 - Server → Client:
   - `ready`
   - `partial_transcript` (best-effort; when STT is configured we emit “batch partial” transcriptions)
   - `final_transcript` (real STT text when STT is configured, otherwise stub)
+  - `assistant_delta` (streaming assistant text chunks)
   - `assistant_message` (Ollama response; **context retained** by sending full message history via `/api/chat`)
   - `tts_audio` (base64 WAV; optional when TTS configured)
+  - `tts_chunk` (preferred: chunked WAV messages for low-latency speech)
   - `done` (turn complete; session can remain open for next turn)
   - `error` (e.g. `stt_error:*` / `ollama_error:*` / `tts_error:*`)
 

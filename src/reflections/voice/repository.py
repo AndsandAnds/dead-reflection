@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import wave
 from array import array
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 import httpx  # type: ignore[import-not-found]
@@ -141,6 +143,37 @@ class VoiceRepository:
             data = resp.json()
             msg = data.get("message") or {}
             return str(msg.get("content", "")).strip()
+
+    async def stream_assistant_reply_chat(
+        self, *, messages: list[dict[str, str]]
+    ) -> AsyncIterator[str]:
+        """
+        Stream Ollama /api/chat and yield text deltas.
+
+        Ollama returns newline-delimited JSON objects when stream=true.
+        """
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "messages": messages,
+            "stream": True,
+            "keep_alive": "10m",
+        }
+        timeout_s = float(settings.OLLAMA_TIMEOUT_S)
+        timeout = httpx.Timeout(timeout_s, connect=min(2.0, timeout_s))
+
+        async with httpx.AsyncClient(base_url=settings.OLLAMA_BASE_URL) as client:
+            async with client.stream(
+                "POST", "/api/chat", json=payload, timeout=timeout
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    msg = obj.get("message") or {}
+                    delta = str(msg.get("content") or "")
+                    if delta:
+                        yield delta
 
     async def synthesize_tts_wav(self, *, text: str, voice: str | None = None) -> bytes:
         """

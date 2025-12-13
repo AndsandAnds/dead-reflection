@@ -56,6 +56,11 @@ class ServerAssistantMessage(BaseModel):
     text: str
 
 
+class ServerAssistantDelta(BaseModel):
+    type: Literal["assistant_delta"] = "assistant_delta"
+    delta: str
+
+
 class ServerTtsAudio(BaseModel):
     type: Literal["tts_audio"] = "tts_audio"
     wav_b64: str

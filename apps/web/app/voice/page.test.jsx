@@ -120,7 +120,9 @@ describe("Voice page", () => {
         await new Promise((r) => setTimeout(r, 0));
 
         expect(lastWsUrl).toMatch(/\/ws\/voice$/);
-        const jsonMsgs = wsSends.filter((x) => typeof x === "string").map((x) => JSON.parse(x));
+        const jsonMsgs = wsSends
+            .filter((x) => typeof x === "string")
+            .map((x) => JSON.parse(x));
         expect(jsonMsgs.some((m) => m.type === "cancel")).toBe(true);
         expect(jsonMsgs.some((m) => m.type === "hello")).toBe(true);
 

@@ -61,6 +61,7 @@ export default function VoicePage() {
   const ttsQueueRef = useRef<AudioBuffer[]>([]);
   const ttsPlayingRef = useRef<boolean>(false);
   const ttsSawChunksRef = useRef<boolean>(false);
+  const assistantStreamingRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -211,10 +212,41 @@ export default function VoicePage() {
           return;
         }
         if (msg.type === "assistant_message") {
-          setMessages((prev: ChatMessage[]) => [
-            ...prev,
-            { role: "assistant", text: String(msg.text ?? "") },
-          ]);
+          const finalText = String(msg.text ?? "");
+          setMessages((prev: ChatMessage[]) => {
+            if (
+              assistantStreamingRef.current &&
+              prev.length > 0 &&
+              prev[prev.length - 1]?.role === "assistant"
+            ) {
+              return [
+                ...prev.slice(0, -1),
+                { role: "assistant", text: finalText },
+              ];
+            }
+            return [...prev, { role: "assistant", text: finalText }];
+          });
+          assistantStreamingRef.current = false;
+          return;
+        }
+        if (msg.type === "assistant_delta") {
+          const delta = String(msg.delta ?? "");
+          if (!delta) return;
+          setMessages((prev: ChatMessage[]) => {
+            if (
+              assistantStreamingRef.current &&
+              prev.length > 0 &&
+              prev[prev.length - 1]?.role === "assistant"
+            ) {
+              const last = prev[prev.length - 1]!;
+              return [
+                ...prev.slice(0, -1),
+                { role: "assistant", text: last.text + delta },
+              ];
+            }
+            assistantStreamingRef.current = true;
+            return [...prev, { role: "assistant", text: delta }];
+          });
           return;
         }
         if (msg.type === "tts_chunk") {
@@ -295,6 +327,7 @@ export default function VoicePage() {
         if (msg.type === "done") {
           // Turn boundary: reset per-turn TTS chunk tracking.
           ttsSawChunksRef.current = false;
+          assistantStreamingRef.current = false;
           setStatus("idle");
           return;
         }
