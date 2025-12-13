@@ -89,6 +89,45 @@ def test_voice_ws_binary_audio_emits_partial(client: TestClient, monkeypatch) ->
         assert done is not None
 
 
+def test_voice_ws_end_is_idempotent_no_duplicate_assistant(
+    client: TestClient, monkeypatch
+) -> None:
+    """
+    Regression: multiple 'end' events (client double-send or race with endpointing)
+    must not produce duplicate assistant messages.
+    """
+    from reflections.voice import service as voice_service
+
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", None)
+
+    class FastRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            return "hello"
+
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            yield "ok"
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", FastRepo)
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_bytes(b"\x00\x01" * 1600)
+
+        ws.send_json({"type": "end"})
+        ws.send_json({"type": "end"})
+
+        assistant_count = 0
+        for _ in range(50):
+            msg = ws.receive_json()
+            if msg.get("type") == "assistant_message":
+                assistant_count += 1
+            if msg.get("type") == "done":
+                break
+
+        assert assistant_count == 1
+
+
 def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) -> None:
     import asyncio
 

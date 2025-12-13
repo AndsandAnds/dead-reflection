@@ -33,6 +33,7 @@ from reflections.voice.schemas import (
 class VoiceSessionState:
     closed: bool = False
     recording: bool = False
+    finalizing: bool = False
     sample_rate: int = 16000
     messages: list[dict[str, str]] = field(default_factory=list)
     latest_partial_text: str = ""
@@ -187,6 +188,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
     state = VoiceSessionState()
 
     send_lock = asyncio.Lock()
+    finalize_lock = asyncio.Lock()
 
     async def send(model: Any) -> None:
         async with send_lock:
@@ -195,6 +197,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
     await send(build_ready_message())
 
     async def cancel_turn(*, reset_audio: bool) -> None:
+        state.finalizing = False
         # Cancel any in-flight processing.
         if state.turn_task and not state.turn_task.done():
             state.turn_task.cancel()
@@ -206,6 +209,41 @@ async def run_voice_session(websocket: WebSocket) -> None:
         await send(build_cancelled_message())
         # Ensure UI exits "finalizing" state even if it was waiting for done.
         await send(build_done_message())
+
+    async def start_finalize_turn(*, reason: str) -> None:
+        """
+        Start exactly one finalize/turn task.
+
+        Guards against races between client 'end' and server endpointing.
+        """
+        async with finalize_lock:
+            if state.finalizing:
+                return
+            state.finalizing = True
+            state.recording = False
+            state.latest_partial_text = ""
+            state.vad_started_monotonic = 0.0
+            state.vad_last_speech_monotonic = 0.0
+
+            pcm = repo.audio_snapshot()
+            repo.reset_audio()
+
+            if not pcm:
+                state.finalizing = False
+                await send(ServerError(message="no_audio"))
+                await send(build_done_message())
+                return
+
+            if state.turn_task and not state.turn_task.done():
+                # Only a client 'end' should preempt an in-flight turn.
+                if reason == "client_end":
+                    await cancel_turn(reset_audio=False)
+                else:
+                    return
+
+            state.turn_task = asyncio.create_task(
+                process_turn(pcm_snapshot=pcm, sample_rate=state.sample_rate)
+            )
 
     async def process_turn(*, pcm_snapshot: bytes, sample_rate: int) -> None:
         bytes_received = len(pcm_snapshot)
@@ -296,6 +334,8 @@ async def run_voice_session(websocket: WebSocket) -> None:
         except Exception as exc:
             await send(ServerError(message=f"turn_error:{exc!s}"))
             await send(build_done_message())
+        finally:
+            state.finalizing = False
 
     async def sender_loop() -> None:
         last_sent = 0
@@ -396,18 +436,12 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 if now - state.vad_last_speech_monotonic < silence_s:
                     continue
 
-                # Auto-finalize.
-                state.recording = False
-                pcm = repo.audio_snapshot()
-                repo.reset_audio()
-                state.latest_partial_text = ""
-                if not pcm:
-                    continue
+                # Auto-finalize (guarded against races with client end).
                 if state.turn_task and not state.turn_task.done():
                     continue
-                state.turn_task = asyncio.create_task(
-                    process_turn(pcm_snapshot=pcm, sample_rate=state.sample_rate)
-                )
+                if state.finalizing:
+                    continue
+                await start_finalize_turn(reason="endpoint")
         except asyncio.CancelledError:
             raise
 
@@ -481,21 +515,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 continue
 
             if parsed.type == "end":
-                state.recording = False
-                state.latest_partial_text = ""
-                pcm = repo.audio_snapshot()
-                repo.reset_audio()
-                if not pcm:
-                    await send(ServerError(message="no_audio"))
-                    await send(build_done_message())
-                    continue
-                if state.turn_task and not state.turn_task.done():
-                    # Client requested end while we're still finishing a previous
-                    # turn; cancel and restart.
-                    await cancel_turn(reset_audio=False)
-                state.turn_task = asyncio.create_task(
-                    process_turn(pcm_snapshot=pcm, sample_rate=state.sample_rate)
-                )
+                await start_finalize_turn(reason="client_end")
                 continue
 
             # ignore unknown message types
