@@ -58,6 +58,9 @@ This is the punch list of what we still need to implement after getting:
 ## P1 — Reliability + developer UX
 - **Health checks**
   - API should report whether STT/TTS bridges are reachable and configured
+- **Optional internet search tool (opt-in)**
+  - Add a PydanticAI tool that can perform web search when explicitly enabled (default remains offline-only)
+  - UX: clear indicator when “internet mode” is on; log/cite sources in responses
 - **Better errors**
   - Structured error codes (not string-prefixed messages)
   - Show actionable UI prompts (“Start STT bridge”, “Set STT_BASE_URL”, etc.)
