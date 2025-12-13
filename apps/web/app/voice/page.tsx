@@ -306,6 +306,17 @@ export default function VoicePage() {
           return;
         }
         if (msg.type === "cancelled") {
+          // Stop any queued/playing TTS immediately.
+          try {
+            playbackRef.current?.stop();
+          } catch {
+            // ignore
+          } finally {
+            playbackRef.current = null;
+          }
+          ttsQueueRef.current = [];
+          ttsPlayingRef.current = false;
+          ttsSawChunksRef.current = false;
           setStatus("idle");
         }
       } catch {

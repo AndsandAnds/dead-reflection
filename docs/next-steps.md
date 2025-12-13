@@ -24,13 +24,13 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Decision: **server-side** resample to 16kHz before STT (browser sends device-rate PCM16LE)
 
 ## P0 — TTS quality + latency
-- **Replace macOS `say`** with a low-latency local model TTS (Piper first)
+- ✅ **Piper option added** to the host TTS bridge (switch with `TTS_ENGINE=piper`)
 - **Streaming TTS**
-  - Change `tts_audio` from a full WAV to chunked audio messages
-  - Add `tts_cancel` semantics and flushing
+  - ✅ Changed to chunked audio messages (`tts_chunk`) + client-side queue playback
+  - ✅ `cancel` now flushes queued audio and stops playback
 - **Voice selection**
-  - Voice profiles per avatar
-  - Store voice config in DB (not env vars)
+  - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
+  - ⏳ Persist per-avatar voice config in DB (move into the avatar/profile system)
 
 ## P1 — Conversation + memory integration
 - **Persist conversations**

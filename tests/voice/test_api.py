@@ -117,6 +117,43 @@ def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) 
         assert "assistant_message" not in seen
 
 
+def test_voice_ws_emits_tts_chunks_when_tts_configured(
+    client: TestClient, monkeypatch
+) -> None:
+    # Deterministic test: enable TTS in settings and stub synthesize.
+    from reflections.voice import service as voice_service
+
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", "http://example")
+
+    class TtsRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            return "hello"
+
+        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            return "hello there"
+
+        async def synthesize_tts_wav(self, *, text: str, voice=None):  # type: ignore[override]
+            # Dummy bytes; backend just base64-encodes.
+            return b"RIFF....WAVE"
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", TtsRepo)
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_bytes(b"\x00\x01" * 1600)
+        ws.send_json({"type": "end"})
+
+        seen_types: set[str] = set()
+        for _ in range(50):
+            msg = ws.receive_json()
+            seen_types.add(str(msg.get("type")))
+            if msg.get("type") == "done":
+                break
+
+        assert "tts_chunk" in seen_types
+
+
 def test_voice_ws_legacy_base64_audio_frame_still_works(client: TestClient) -> None:
     with client.websocket_connect("/ws/voice") as ws:
         _ = ws.receive_json()  # ready
