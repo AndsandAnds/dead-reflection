@@ -2,6 +2,7 @@
 .PHONY: migrate revision
 .PHONY: stt-bridge tts-bridge
 .PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg
+.PHONY: db-bench db-bench-worker db-bench-io-uring
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -30,6 +31,9 @@ help:
 	@echo "  make bridges-up        - start host STT+TTS bridges in background (PID files in ./run)"
 	@echo "  make bridges-down      - stop host STT+TTS bridges"
 	@echo "  make bridges-status    - show whether host bridges are running"
+	@echo "  make db-bench          - run a quick pgbench baseline against the db container"
+	@echo "  make db-bench-worker   - run pgbench with io_method=worker"
+	@echo "  make db-bench-io-uring - run pgbench with io_method=io_uring (if supported)"
 	@echo "  make db-shell  - psql shell into Postgres"
 	@echo "  make api-shell - shell into API container"
 	@echo "  make ui-shell  - shell into UI container"
@@ -143,5 +147,32 @@ tts-bridge-bg:
 	  echo "Starting tts-bridge in background (logs: $(TTS_LOG))"; \
 	  nohup $(MAKE) tts-bridge >"$(TTS_LOG)" 2>&1 & echo $$! >"$(TTS_PID)"; \
 	fi
+
+# ---------------------------------------------------------------------------
+# Postgres perf benchmarking (only change io_method if this shows real gains).
+#
+# Notes:
+# - Requires the db container to be running.
+# - Uses pgbench bundled in the pgvector/pgvector image.
+# - io_uring support depends on the Linux kernel inside Docker; it may fail.
+# ---------------------------------------------------------------------------
+
+db-bench:
+	@echo "Running pgbench baseline (current settings)..."
+	@docker compose exec -T db sh -lc 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Atc "SHOW io_method; SHOW effective_io_concurrency;"'
+	@docker compose exec -T db sh -lc 'pgbench -i -s 10 -U "$$POSTGRES_USER" "$$POSTGRES_DB" >/dev/null'
+	@docker compose exec -T db sh -lc 'pgbench -T 30 -c 8 -j 4 -U "$$POSTGRES_USER" "$$POSTGRES_DB"'
+
+db-bench-worker:
+	@echo "Benchmarking io_method=worker..."
+	@POSTGRES_IO_METHOD=worker docker compose up -d db
+	@sleep 2
+	@$(MAKE) db-bench
+
+db-bench-io-uring:
+	@echo "Benchmarking io_method=io_uring (may fail if unsupported)..."
+	@POSTGRES_IO_METHOD=io_uring docker compose up -d db || true
+	@sleep 2
+	@$(MAKE) db-bench || true
 
 

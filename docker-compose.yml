@@ -3,6 +3,9 @@ name: reflections
 services:
   db:
     image: pgvector/pgvector:pg18
+    # Optional perf knob (Linux-only): try io_method=io_uring. We default to
+    # "worker" and only change this after benchmarking.
+    command: ["postgres", "-c", "io_method=${POSTGRES_IO_METHOD:-worker}"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-reflections}
       POSTGRES_USER: ${POSTGRES_USER:-reflections}

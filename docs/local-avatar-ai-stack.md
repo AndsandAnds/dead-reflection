@@ -411,6 +411,14 @@ For dev, if you upgrade PG major versions and the DB fails to start, wiping the
 volume is the fastest fix:
 - `docker compose down -v`
 
+### Postgres 18 AIO note (`io_uring`)
+Postgres 18 can use Linux `io_uring` for async I/O via `io_method=io_uring`.
+
+In this repo we keep `io_method` **opt-in** (default `worker`) and only switch
+after benchmarking on your machine:
+- Use `POSTGRES_IO_METHOD=io_uring` (Linux-only; may be unsupported under Docker Desktop).
+- Run `make db-bench-worker` vs `make db-bench-io-uring` and compare.
+
 ## MVP Feature Set (Suggested)
 - Single avatar with:
   - persona prompt (name, style, boundaries)
