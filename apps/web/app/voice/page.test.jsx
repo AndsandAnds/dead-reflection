@@ -139,7 +139,8 @@ describe("Voice page", () => {
 
     it("auto-sends end after sustained silence", async () => {
         const nowSpy = vi.spyOn(performance, "now");
-        nowSpy.mockReturnValueOnce(0); // startedMsRef
+        let t = 0;
+        nowSpy.mockImplementation(() => t);
 
         render(<VoicePage />);
         fireEvent.click(screen.getAllByRole("button", { name: /Start mic/i })[0]);
@@ -147,15 +148,18 @@ describe("Voice page", () => {
         await screen.findByRole("button", { name: /Stop \(transcribe\)/i });
 
         // Make handler think time has passed and audio is silent.
-        nowSpy.mockReturnValueOnce(2000);
         const worklet = globalThis.__lastWorklet;
+        t = 2000;
+        worklet.port.onmessage({ data: new Float32Array([0, 0, 0, 0]) });
+        // Re-deliver silence quickly; should not send a second "end".
+        t = 2100;
         worklet.port.onmessage({ data: new Float32Array([0, 0, 0, 0]) });
 
-        const endMsg = wsSends
+        const endCount = wsSends
             .filter((x) => typeof x === "string")
             .map((x) => JSON.parse(x))
-            .find((m) => m.type === "end");
-        expect(endMsg).toBeTruthy();
+            .filter((m) => m.type === "end").length;
+        expect(endCount).toBe(1);
         nowSpy.mockRestore();
     });
 

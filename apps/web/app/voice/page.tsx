@@ -63,6 +63,7 @@ export default function VoicePage() {
   const ttsSawChunksRef = useRef<boolean>(false);
   const assistantStreamingRef = useRef<boolean>(false);
   const assistantHadDeltaRef = useRef<boolean>(false);
+  const finalizeSentRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -332,6 +333,8 @@ export default function VoicePage() {
           ttsSawChunksRef.current = false;
           assistantStreamingRef.current = false;
           assistantHadDeltaRef.current = false;
+          finalizeSentRef.current = false;
+          statusRef.current = "idle";
           setStatus("idle");
           return;
         }
@@ -356,6 +359,8 @@ export default function VoicePage() {
           ttsSawChunksRef.current = false;
           assistantStreamingRef.current = false;
           assistantHadDeltaRef.current = false;
+          finalizeSentRef.current = false;
+          statusRef.current = "idle";
           setStatus("idle");
         }
       } catch {
@@ -426,6 +431,9 @@ export default function VoicePage() {
     const ws = await ensureSocket();
     if (!ws) return;
 
+    // Reset per-turn guards.
+    finalizeSentRef.current = false;
+
     // Barge-in semantics: if the backend is still finalizing a previous turn
     // (LLM/TTS), ask it to cancel any in-flight work.
     try {
@@ -489,10 +497,15 @@ export default function VoicePage() {
     };
 
     source.connect(worklet);
+    statusRef.current = "running";
     setStatus("running");
   }
 
   function stop(cancel = false) {
+    // Make stop idempotent to avoid duplicate 'end' from the silence timer
+    // before React state + statusRef update propagate.
+    if (!cancel && finalizeSentRef.current) return;
+
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       closeWs();
@@ -509,12 +522,15 @@ export default function VoicePage() {
         // ignore
       }
       cleanupCapture();
+      finalizeSentRef.current = false;
       setStatus("idle");
       return;
     }
 
     // End the capture, but keep the WS open until we receive the final transcript
     // + assistant message.
+    finalizeSentRef.current = true;
+    statusRef.current = "finalizing";
     setStatus("finalizing");
     try {
       ws.send(JSON.stringify({ type: "end" }));
