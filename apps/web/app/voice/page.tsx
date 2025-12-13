@@ -62,6 +62,7 @@ export default function VoicePage() {
   const ttsPlayingRef = useRef<boolean>(false);
   const ttsSawChunksRef = useRef<boolean>(false);
   const assistantStreamingRef = useRef<boolean>(false);
+  const assistantHadDeltaRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -215,7 +216,7 @@ export default function VoicePage() {
           const finalText = String(msg.text ?? "");
           setMessages((prev: ChatMessage[]) => {
             if (
-              assistantStreamingRef.current &&
+              assistantHadDeltaRef.current &&
               prev.length > 0 &&
               prev[prev.length - 1]?.role === "assistant"
             ) {
@@ -227,11 +228,14 @@ export default function VoicePage() {
             return [...prev, { role: "assistant", text: finalText }];
           });
           assistantStreamingRef.current = false;
+          assistantHadDeltaRef.current = false;
           return;
         }
         if (msg.type === "assistant_delta") {
           const delta = String(msg.delta ?? "");
           if (!delta) return;
+          assistantStreamingRef.current = true;
+          assistantHadDeltaRef.current = true;
           setMessages((prev: ChatMessage[]) => {
             if (
               assistantStreamingRef.current &&
@@ -244,7 +248,6 @@ export default function VoicePage() {
                 { role: "assistant", text: last.text + delta },
               ];
             }
-            assistantStreamingRef.current = true;
             return [...prev, { role: "assistant", text: delta }];
           });
           return;
@@ -328,6 +331,7 @@ export default function VoicePage() {
           // Turn boundary: reset per-turn TTS chunk tracking.
           ttsSawChunksRef.current = false;
           assistantStreamingRef.current = false;
+          assistantHadDeltaRef.current = false;
           setStatus("idle");
           return;
         }
@@ -350,6 +354,8 @@ export default function VoicePage() {
           ttsQueueRef.current = [];
           ttsPlayingRef.current = false;
           ttsSawChunksRef.current = false;
+          assistantStreamingRef.current = false;
+          assistantHadDeltaRef.current = false;
           setStatus("idle");
         }
       } catch {

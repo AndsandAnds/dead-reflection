@@ -18,6 +18,7 @@ class MockWebSocket {
         this.onmessage = null;
         this.onerror = null;
         this.onclose = null;
+        globalThis.__lastWs = this;
         setTimeout(() => this.onopen && this.onopen(), 0);
     }
     send(data) {
@@ -101,6 +102,7 @@ afterEach(() => {
     vi.restoreAllMocks();
     try {
         delete globalThis.__lastWorklet;
+        delete globalThis.__lastWs;
     } catch {
         // ignore
     }
@@ -155,6 +157,25 @@ describe("Voice page", () => {
             .find((m) => m.type === "end");
         expect(endMsg).toBeTruthy();
         nowSpy.mockRestore();
+    });
+
+    it("does not duplicate assistant messages when deltas are followed by final", async () => {
+        render(<VoicePage />);
+        // connect socket
+        fireEvent.click(screen.getAllByRole("button", { name: /Start mic/i })[0]);
+        await new Promise((r) => setTimeout(r, 0));
+
+        const ws = globalThis.__lastWs;
+        expect(ws).toBeTruthy();
+
+        // Simulate streaming deltas then final assistant message.
+        ws.onmessage({ data: JSON.stringify({ type: "assistant_delta", delta: "Hello" }) });
+        ws.onmessage({ data: JSON.stringify({ type: "assistant_delta", delta: " world" }) });
+        ws.onmessage({ data: JSON.stringify({ type: "assistant_message", text: "Hello world" }) });
+
+        await screen.findByText("Hello world");
+        const matches = screen.getAllByText("Hello world");
+        expect(matches.length).toBe(1);
     });
 });
 
