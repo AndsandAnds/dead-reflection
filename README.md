@@ -126,7 +126,11 @@ Piper is a low-latency local neural TTS. Our bridge can call Piper when enabled.
 
 ```bash
 brew install pipx
-pipx install piper-tts
+brew install python@3.13
+
+# IMPORTANT: pipx uses its default Python. Piper dependencies (onnxruntime) may
+# not yet support the newest Python (e.g. 3.14). Force a supported Python:
+pipx install --python /opt/homebrew/opt/python@3.13/libexec/bin/python piper-tts
 ```
 
 This installs the `piper` CLI via the official project ([`OHF-Voice/piper1-gpl`](https://github.com/OHF-Voice/piper1-gpl)).

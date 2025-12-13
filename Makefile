@@ -72,7 +72,8 @@ check-tts-piper:
 	  echo "ERROR: TTS_ENGINE=piper but '$$bin' is not installed / not on PATH."; \
 	  echo "Install Piper CLI (recommended):"; \
 	  echo "  brew install pipx"; \
-	  echo "  pipx install piper-tts"; \
+	  echo "  brew install python@3.13"; \
+	  echo "  pipx install --python /opt/homebrew/opt/python@3.13/libexec/bin/python piper-tts"; \
 	  exit 2; \
 	fi; \
 	if [ -z "$$model" ] || [ ! -f "$$model" ]; then \
