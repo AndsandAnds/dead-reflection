@@ -46,6 +46,8 @@ This is the punch list of what we still need to implement after getting:
 - **Avatar profiles**
   - Create avatars (name, persona prompt, style rules, voice config)
   - Per-avatar memory scope (already designed)
+- **User profile (name + preferences)**
+  - Capture the user’s preferred name and make it available to prompts/tools so Lumina can address the user naturally
 - **Prompting**
   - System prompt templates (persona + style + safety)
   - Tool routing via PydanticAI
