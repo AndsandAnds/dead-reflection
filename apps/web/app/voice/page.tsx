@@ -263,6 +263,15 @@ export default function VoicePage() {
         if (msg.type === "assistant_message") {
           const finalText = String(msg.text ?? "");
           setMessages((prev: ChatMessage[]) => {
+            // Idempotency guard: if the backend repeats the final message,
+            // don't append a duplicate.
+            if (
+              prev.length > 0 &&
+              prev[prev.length - 1]?.role === "assistant" &&
+              prev[prev.length - 1]?.text === finalText
+            ) {
+              return prev;
+            }
             if (
               assistantHadDeltaRef.current &&
               prev.length > 0 &&

@@ -198,6 +198,22 @@ describe("Voice page", () => {
         const matches = screen.getAllByText("Hello world");
         expect(matches.length).toBe(1);
     });
+
+    it("does not duplicate assistant messages when final is repeated", async () => {
+        render(<VoicePage />);
+        // connect socket
+        fireEvent.click(screen.getAllByRole("button", { name: /Start mic/i })[0]);
+        await new Promise((r) => setTimeout(r, 0));
+
+        const ws = globalThis.__lastWs;
+        expect(ws).toBeTruthy();
+
+        ws.onmessage({ data: JSON.stringify({ type: "assistant_message", text: "Same" }) });
+        ws.onmessage({ data: JSON.stringify({ type: "assistant_message", text: "Same" }) });
+
+        await screen.findByText("Same");
+        expect(screen.getAllByText("Same").length).toBe(1);
+    });
 });
 
 
