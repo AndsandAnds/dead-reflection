@@ -163,6 +163,23 @@ describe("Voice page", () => {
         nowSpy.mockRestore();
     });
 
+    it("push-to-talk: Space starts mic, Space release stops/transcribes", async () => {
+        render(<VoicePage />);
+
+        // Press Space to start.
+        fireEvent.keyDown(window, { code: "Space" });
+        await screen.findByRole("button", { name: /Stop \(transcribe\)/i });
+
+        // Release Space to stop -> should send end exactly once.
+        fireEvent.keyUp(window, { code: "Space" });
+
+        const endCount = wsSends
+            .filter((x) => typeof x === "string")
+            .map((x) => JSON.parse(x))
+            .filter((m) => m.type === "end").length;
+        expect(endCount).toBe(1);
+    });
+
     it("does not duplicate assistant messages when deltas are followed by final", async () => {
         render(<VoicePage />);
         // connect socket

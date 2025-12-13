@@ -64,10 +64,57 @@ export default function VoicePage() {
   const assistantStreamingRef = useRef<boolean>(false);
   const assistantHadDeltaRef = useRef<boolean>(false);
   const finalizeSentRef = useRef<boolean>(false);
+  const spaceDownRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    const isEditableTarget = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      const tag = (el.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select")
+        return true;
+      return Boolean((el as any).isContentEditable);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (isEditableTarget(e.target)) return;
+      // Prevent page scroll on Space.
+      e.preventDefault();
+      if (spaceDownRef.current) return;
+      spaceDownRef.current = true;
+
+      const st = statusRef.current;
+      if (st === "idle" || st === "disconnected") {
+        void start();
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      if (!spaceDownRef.current) return;
+      spaceDownRef.current = false;
+
+      const st = statusRef.current;
+      if (st === "running") {
+        stop(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    window.addEventListener("keyup", onKeyUp, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown as any);
+      window.removeEventListener("keyup", onKeyUp as any);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
