@@ -20,6 +20,23 @@ Architecture notes live in `docs/local-avatar-ai-stack.md`.
 - Ollama installed on the host (macOS)
   - Ensure it’s reachable at `http://localhost:11434`
 
+## Optional: Create a “Lumina” model in Ollama (Modelfile)
+Ollama supports lightweight customization via a `Modelfile` (system prompt + parameters + optional exemplars). See the upstream reference: [`Modelfile` docs](https://raw.githubusercontent.com/ollama/ollama/main/docs/modelfile.mdx).
+
+This repo includes `ollama/Modelfile.lumina`, which defines **Lumina** as a personal assistant identity.
+
+Create the model on your host:
+
+```bash
+ollama create lumina -f ollama/Modelfile.lumina
+```
+
+Then set your `.env` to use it:
+
+```bash
+OLLAMA_MODEL=lumina
+```
+
 Optional (voice):
 - `whisper.cpp` (Homebrew) + a Whisper model file (see “Voice (STT) setup” below)
 
