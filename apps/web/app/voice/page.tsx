@@ -58,6 +58,9 @@ export default function VoicePage() {
   const statusRef = useRef<string>("idle");
   const lastSpeechMsRef = useRef<number>(0);
   const startedMsRef = useRef<number>(0);
+  const ttsQueueRef = useRef<AudioBuffer[]>([]);
+  const ttsPlayingRef = useRef<boolean>(false);
+  const ttsSawChunksRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -152,6 +155,9 @@ export default function VoicePage() {
     } catch {
       // ignore
     }
+    ttsQueueRef.current = [];
+    ttsPlayingRef.current = false;
+    ttsSawChunksRef.current = false;
 
     try {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
@@ -211,7 +217,53 @@ export default function VoicePage() {
           ]);
           return;
         }
+        if (msg.type === "tts_chunk") {
+          const ctx = ctxRef.current;
+          const gain = outGainRef.current;
+          if (!ctx || !gain) return;
+
+          ttsSawChunksRef.current = true;
+          const wavB64 = String(msg.wav_b64 ?? "");
+          if (!wavB64) return;
+
+          const enqueue = (audioBuffer: AudioBuffer) => {
+            ttsQueueRef.current.push(audioBuffer);
+            if (ttsPlayingRef.current) return;
+            const playNext = () => {
+              const next = ttsQueueRef.current.shift();
+              if (!next) {
+                ttsPlayingRef.current = false;
+                return;
+              }
+              ttsPlayingRef.current = true;
+              try {
+                playbackRef.current?.stop();
+              } catch {
+                // ignore
+              }
+              const src = ctx.createBufferSource();
+              src.buffer = next;
+              src.connect(gain);
+              playbackRef.current = src;
+              src.onended = () => playNext();
+              src.start();
+            };
+            playNext();
+          };
+
+          const buf = arrayBufferFromBase64(wavB64);
+          ctx
+            .decodeAudioData(buf.slice(0))
+            .then((audioBuffer) => enqueue(audioBuffer))
+            .catch(() => {
+              // ignore decode errors
+            });
+          return;
+        }
         if (msg.type === "tts_audio") {
+          // If the server is sending chunked TTS, ignore the legacy single WAV to
+          // avoid double playback.
+          if (ttsSawChunksRef.current) return;
           const ctx = ctxRef.current;
           const gain = outGainRef.current;
           if (!ctx || !gain) return;
@@ -241,6 +293,8 @@ export default function VoicePage() {
           return;
         }
         if (msg.type === "done") {
+          // Turn boundary: reset per-turn TTS chunk tracking.
+          ttsSawChunksRef.current = false;
           setStatus("idle");
           return;
         }
@@ -321,6 +375,14 @@ export default function VoicePage() {
 
     const ws = await ensureSocket();
     if (!ws) return;
+
+    // Barge-in semantics: if the backend is still finalizing a previous turn
+    // (LLM/TTS), ask it to cancel any in-flight work.
+    try {
+      ws.send(JSON.stringify({ type: "cancel" }));
+    } catch {
+      // ignore
+    }
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },

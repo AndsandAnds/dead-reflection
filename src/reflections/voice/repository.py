@@ -133,14 +133,16 @@ class VoiceRepository:
             # Keep model hot between calls (best-effort; Ollama may ignore).
             "keep_alive": "10m",
         }
+        timeout_s = float(settings.OLLAMA_TIMEOUT_S)
+        timeout = httpx.Timeout(timeout_s, connect=min(2.0, timeout_s))
         async with httpx.AsyncClient(base_url=settings.OLLAMA_BASE_URL) as client:
-            resp = await client.post("/api/chat", json=payload, timeout=30.0)
+            resp = await client.post("/api/chat", json=payload, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
             msg = data.get("message") or {}
             return str(msg.get("content", "")).strip()
 
-    async def synthesize_tts_wav(self, *, text: str) -> bytes:
+    async def synthesize_tts_wav(self, *, text: str, voice: str | None = None) -> bytes:
         """
         Synthesize TTS audio via a host-run TTS bridge.
 
@@ -148,10 +150,13 @@ class VoiceRepository:
         """
         if not settings.TTS_BASE_URL:
             raise RuntimeError("TTS_BASE_URL is not configured")
+        payload: dict[str, str] = {"text": text}
+        if voice:
+            payload["voice"] = voice
         async with httpx.AsyncClient(base_url=settings.TTS_BASE_URL) as client:
             resp = await client.post(
                 "/speak",
-                json={"text": text},
+                json=payload,
                 timeout=float(settings.TTS_TIMEOUT_S),
             )
             resp.raise_for_status()

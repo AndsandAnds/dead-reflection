@@ -4,6 +4,7 @@
 .PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
+.PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -21,8 +22,12 @@ help:
 	@echo "  make restart   - restart stack"
 	@echo "  make clean     - stop stack and remove volumes"
 	@echo "  make test      - run backend + frontend tests"
-	@echo "  make test-backend  - run pytest in api container"
+	@echo "  make test-backend  - run pytest (streams output via docker compose exec when possible)"
+	@echo "  make test-backend-fast     - run pytest with minimal output"
+	@echo "  make test-backend-verbose  - run pytest with max verbosity"
+	@echo "  make test-backend-specific test_name=... - run a specific backend test (pytest -k)"
 	@echo "  make test-frontend - run vitest in ui container"
+	@echo "  make test-frontend-verbose - run vitest with reporter=verbose"
 	@echo "  make precommit-install - install git pre-commit hooks (run locally)"
 	@echo "  make precommit-run     - run all hooks on all files (run locally)"
 	@echo "  make migrate           - apply Alembic migrations (docker compose api)"
@@ -102,10 +107,58 @@ ui-shell:
 test: test-backend test-frontend
 
 test-backend:
-	docker compose run --rm api poetry run pytest
+	@# Prefer exec so output streams and we avoid recreating one-off containers.
+	@# Fallback to run --rm when api is not running.
+	@set -e; \
+	if docker compose ps -q api | grep -q .; then \
+	  docker compose exec -T api poetry run pytest -vv -s; \
+	else \
+	  docker compose run --rm api poetry run pytest -vv -s; \
+	fi
 
 test-frontend:
-	docker compose run --rm ui npm test
+	@set -e; \
+	if docker compose ps -q ui | grep -q .; then \
+	  docker compose exec -T ui npm test; \
+	else \
+	  docker compose run --rm ui npm test; \
+	fi
+
+test-backend-fast:
+	@set -e; \
+	if docker compose ps -q api | grep -q .; then \
+	  docker compose exec -T api poetry run pytest -q; \
+	else \
+	  docker compose run --rm api poetry run pytest -q; \
+	fi
+
+test-backend-verbose:
+	@set -e; \
+	if docker compose ps -q api | grep -q .; then \
+	  docker compose exec -T api poetry run pytest -vvv -s --tb=long; \
+	else \
+	  docker compose run --rm api poetry run pytest -vvv -s --tb=long; \
+	fi
+
+test-backend-specific:
+	@set -e; \
+	if [ -z "$(test_name)" ]; then \
+	  echo "Usage: make test-backend-specific test_name=<pattern>"; \
+	  exit 2; \
+	fi; \
+	if docker compose ps -q api | grep -q .; then \
+	  docker compose exec -T api poetry run pytest -k "$(test_name)" -vv -s -ra; \
+	else \
+	  docker compose run --rm api poetry run pytest -k "$(test_name)" -vv -s -ra; \
+	fi
+
+test-frontend-verbose:
+	@set -e; \
+	if docker compose ps -q ui | grep -q .; then \
+	  docker compose exec -T ui npm test -- --reporter=verbose; \
+	else \
+	  docker compose run --rm ui npm test -- --reporter=verbose; \
+	fi
 
 # NOTE: These run on your host (not in Docker), because git hooks run locally.
 precommit-install:

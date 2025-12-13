@@ -61,6 +61,13 @@ class ServerTtsAudio(BaseModel):
     wav_b64: str
 
 
+class ServerTtsChunk(BaseModel):
+    type: Literal["tts_chunk"] = "tts_chunk"
+    seq: int
+    wav_b64: str
+    is_last: bool = False
+
+
 class ServerDone(BaseModel):
     type: Literal["done"] = "done"
 

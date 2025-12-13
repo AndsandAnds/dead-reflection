@@ -9,16 +9,42 @@ def test_voice_ws_ready_and_cancel(client: TestClient) -> None:
         assert msg["type"] == "ready"
 
         ws.send_json({"type": "cancel"})
+        # Cancel emits cancelled (and may also emit done to ensure the UI can
+        # exit "finalizing" state safely).
         msg = ws.receive_json()
+        assert msg["type"] in {"cancelled", "done"}
+        if msg["type"] == "done":
+            msg = ws.receive_json()
         assert msg["type"] == "cancelled"
+        # Drain any trailing "done" from cancel.
+        msg2 = ws.receive_json()
+        assert msg2["type"] in {"done", "error"}
 
         ws.send_text("not-json")
+        # Next message should be an error (ignore any straggler done).
         msg = ws.receive_json()
+        if msg["type"] == "done":
+            msg = ws.receive_json()
         assert msg["type"] == "error"
         assert msg["message"] in {"invalid_json", "invalid_message"}
 
 
-def test_voice_ws_binary_audio_emits_partial(client: TestClient) -> None:
+def test_voice_ws_binary_audio_emits_partial(client: TestClient, monkeypatch) -> None:
+    # Make this test deterministic and fast: no real STT/Ollama/TTS calls.
+    from reflections.voice import service as voice_service
+
+    class FastRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            return "hello world"
+
+        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            return "hi!"
+
+        async def synthesize_tts_wav(self, *, text: str, voice=None):  # type: ignore[override]
+            raise RuntimeError("tts disabled in unit test")
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", FastRepo)
+
     with client.websocket_connect("/ws/voice") as ws:
         _ = ws.receive_json()  # ready
 
@@ -26,40 +52,69 @@ def test_voice_ws_binary_audio_emits_partial(client: TestClient) -> None:
         ws.send_json({"type": "hello", "sample_rate": 16000})
         ws.send_bytes(audio)
 
+        # We should get at least one partial transcript while recording.
         msg = ws.receive_json()
         assert msg["type"] == "partial_transcript"
         assert msg["bytes_received"] >= len(audio)
 
         ws.send_json({"type": "end"})
-        # Depending on local env (.env), STT or Ollama may emit 'error' messages.
-        # We assert the required messages arrive in-order relative to each other.
+        seen: list[str] = []
         final_msg = None
-        for _ in range(5):
-            msg = ws.receive_json()
-            if msg["type"] == "final_transcript":
-                final_msg = msg
-                break
-        assert final_msg is not None
-        assert final_msg["bytes_received"] >= len(audio)
-
         assistant_msg = None
-        for _ in range(5):
-            msg = ws.receive_json()
-            if msg["type"] == "assistant_message":
-                assistant_msg = msg
-                break
-        assert assistant_msg is not None
-        assert isinstance(assistant_msg.get("text"), str)
-
-        # Optional: TTS audio may be emitted if configured.
-        # Always: a final "done" message should close out the turn.
         done = None
-        for _ in range(10):
+
+        # Drain up to N messages to account for optional extra messages.
+        for _ in range(20):
             msg = ws.receive_json()
-            if msg["type"] == "done":
+            mtype = str(msg.get("type"))
+            seen.append(mtype)
+            if mtype == "final_transcript":
+                final_msg = msg
+            elif mtype == "assistant_message":
+                assistant_msg = msg
+            elif mtype == "done":
                 done = msg
                 break
+
+        assert final_msg is not None
+        assert final_msg["text"] == "hello world"
+        assert final_msg["bytes_received"] >= len(audio)
+
+        assert assistant_msg is not None
+        assert assistant_msg["text"] == "hi!"
+
         assert done is not None
+
+
+def test_voice_ws_cancel_cancels_inflight_turn(client: TestClient, monkeypatch) -> None:
+    import asyncio
+
+    from reflections.voice import service as voice_service
+
+    class SlowRepo(voice_service.VoiceRepository):
+        async def generate_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            await asyncio.sleep(2.0)
+            return "hello"
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", SlowRepo)
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_bytes(b"\x00\x01" * 1600)
+
+        ws.send_json({"type": "end"})
+        ws.send_json({"type": "cancel"})
+
+        seen: list[str] = []
+        for _ in range(20):
+            msg = ws.receive_json()
+            seen.append(str(msg.get("type")))
+            if msg.get("type") == "done" and "cancelled" in seen:
+                break
+
+        assert "cancelled" in seen
+        assert "assistant_message" not in seen
 
 
 def test_voice_ws_legacy_base64_audio_frame_still_works(client: TestClient) -> None:

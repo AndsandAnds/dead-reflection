@@ -120,8 +120,9 @@ describe("Voice page", () => {
         await new Promise((r) => setTimeout(r, 0));
 
         expect(lastWsUrl).toMatch(/\/ws\/voice$/);
-        const hello = wsSends.find((x) => typeof x === "string");
-        expect(JSON.parse(hello)).toMatchObject({ type: "hello" });
+        const jsonMsgs = wsSends.filter((x) => typeof x === "string").map((x) => JSON.parse(x));
+        expect(jsonMsgs.some((m) => m.type === "cancel")).toBe(true);
+        expect(jsonMsgs.some((m) => m.type === "hello")).toBe(true);
 
         // simulate a mic frame
         const worklet = globalThis.__lastWorklet;
