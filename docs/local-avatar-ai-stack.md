@@ -245,18 +245,22 @@ MVP UI needs:
 
 #### Current WS voice protocol (v0)
 - Client → Server:
-  - `hello` (with `sample_rate`)
-  - `audio_frame` (base64 PCM16LE)
+  - `hello` (with capture `sample_rate`)
+  - **binary WS frames**: raw **PCM16LE** mono audio (no JSON wrapper per frame)
   - `end` (finalize + transcribe + respond)
   - `cancel`
+  - (legacy) `audio_frame` (base64 PCM16LE) is still supported for back-compat
 - Server → Client:
   - `ready`
-  - `partial_transcript` (currently “listening” stub while recording)
+  - `partial_transcript` (best-effort; when STT is configured we emit “batch partial” transcriptions)
   - `final_transcript` (real STT text when STT is configured, otherwise stub)
   - `assistant_message` (Ollama response; **context retained** by sending full message history via `/api/chat`)
   - `tts_audio` (base64 WAV; optional when TTS configured)
   - `done` (turn complete; session can remain open for next turn)
   - `error` (e.g. `stt_error:*` / `ollama_error:*` / `tts_error:*`)
+
+**Resampling decision (v0)**:
+- Browser sends device-rate PCM16LE; backend **standardizes to 16kHz mono PCM16** before STT.
 
 ### 6) Safety + Privacy Controls (Local-first)
 Even local-only, we want guardrails:

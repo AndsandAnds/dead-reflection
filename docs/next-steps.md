@@ -18,11 +18,11 @@ This is the punch list of what we still need to implement after getting:
     - send `cancel` to backend
     - cancel any in-flight LLM/TTS work
 - **Audio framing**
-  - Stop sending base64 JSON per frame
-  - Move to **binary WebSocket frames** + small header, plus backpressure handling
+  - ✅ Moved to **binary WebSocket frames** (raw PCM16LE) with basic backpressure (drop when congested)
+  - (legacy) base64 JSON frames still supported for compatibility
 - **Resampling decision**
   - Standardize on **16kHz mono PCM16** for STT
-  - Either resample in browser (AudioWorklet) or server-side; pick one and document it
+  - ✅ Decision: **server-side** resample to 16kHz before STT (browser sends device-rate PCM16LE)
 
 ## P0 — TTS quality + latency
 - **Replace macOS `say`** with a low-latency local model TTS (Piper first)

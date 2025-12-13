@@ -32,6 +32,16 @@ function pcm16Base64FromFloat32(input: Float32Array): string {
   return btoa(bin);
 }
 
+function pcm16leBufferFromFloat32(input: Float32Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(input.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < input.length; i++) {
+    const s = Math.max(-1, Math.min(1, input[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return buffer;
+}
+
 function arrayBufferFromBase64(b64: string): ArrayBuffer {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -58,6 +68,13 @@ export default function VoicePage() {
   const lastUiTickMsRef = useRef<number>(0);
   const playbackRef = useRef<AudioBufferSourceNode | null>(null);
   const workletLoadedRef = useRef<boolean>(false);
+  const statusRef = useRef<string>("idle");
+  const lastSpeechMsRef = useRef<number>(0);
+  const startedMsRef = useRef<number>(0);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -337,6 +354,8 @@ export default function VoicePage() {
       channelCount: 1,
     });
     workletRef.current = worklet;
+    startedMsRef.current = performance.now();
+    lastSpeechMsRef.current = startedMsRef.current;
 
     worklet.port.onmessage = (ev: MessageEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -347,14 +366,27 @@ export default function VoicePage() {
         lastUiTickMsRef.current = now;
         setInputLevel(clamp01(rmsLevel(frame) * 3.0));
       }
-      const b64 = pcm16Base64FromFloat32(frame);
-      ws.send(
-        JSON.stringify({
-          type: "audio_frame",
-          sample_rate: ctx.sampleRate,
-          pcm16le_b64: b64,
-        })
-      );
+
+      // Simple endpointing (silence timer): if user is quiet for a bit, auto-end.
+      // This keeps a push-to-talk UX (Start mic / Stop) but makes it feel more
+      // "hands free" for short utterances.
+      const lvl = rmsLevel(frame);
+      const speechThreshold = 0.02;
+      if (lvl >= speechThreshold) lastSpeechMsRef.current = now;
+      if (
+        statusRef.current === "running" &&
+        now - startedMsRef.current > 1200 &&
+        now - lastSpeechMsRef.current > 900
+      ) {
+        stop(false);
+        return;
+      }
+
+      // Prefer binary WS frames for audio (lower overhead than base64 JSON).
+      // Apply basic backpressure by dropping frames if the socket buffer grows.
+      if (ws.bufferedAmount > 1_000_000) return;
+      const buf = pcm16leBufferFromFloat32(frame);
+      ws.send(buf);
     };
 
     source.connect(worklet);

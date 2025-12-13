@@ -16,8 +16,8 @@ Applies to `apps/web/**` (Next.js App Router).
 
 ## Audio capture (browser)
 - Prefer **AudioWorklet** for low-latency mic capture; fall back to ScriptProcessorNode only if needed.
-- Normalize capture to **16kHz mono PCM** frames (e.g., 20ms frames).
-  - If the device rate is 44.1k/48k, resample client-side (or send raw and resample server-side—decide once and keep consistent).
+- Normalize capture to **mono PCM** frames (e.g., 20ms frames).
+  - **Decision (v0)**: send device-rate PCM16LE frames and **resample server-side to 16kHz** before STT.
 - Use **push-to-talk** as a fallback UX option if echo/endpointing is tricky.
 
 ## Transport
@@ -33,7 +33,7 @@ Applies to `apps/web/**` (Next.js App Router).
   - **explicit close** on route change/unmount
   - **backpressure**: drop/queue frames if socket is congested; never freeze UI thread
 - Keep a stable message protocol:
-  - `audio_frame` (binary)
+  - binary audio frames (PCM16LE)
   - `partial_transcript`
   - `final_transcript`
   - `assistant_message` (or token streaming later)

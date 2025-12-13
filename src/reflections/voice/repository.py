@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import wave
+from array import array
 from dataclasses import dataclass, field
 
 import httpx  # type: ignore[import-not-found]
@@ -19,18 +20,23 @@ class VoiceRepository:
 
     bytes_received: int = 0
     audio_pcm16le: bytearray = field(default_factory=bytearray)
+    target_sample_rate: int = 16000
 
     def ingest_audio(self, audio_bytes: bytes) -> int:
         self.bytes_received += len(audio_bytes)
         self.audio_pcm16le.extend(audio_bytes)
-        # "flush" concept for DB doesn't apply here; we still keep this layer dumb.
         return self.bytes_received
 
     def reset_audio(self) -> None:
         self.bytes_received = 0
         self.audio_pcm16le.clear()
 
-    async def transcribe_audio(self, *, sample_rate: int) -> str:
+    def audio_snapshot(self) -> bytes:
+        return bytes(self.audio_pcm16le)
+
+    async def transcribe_audio(
+        self, *, sample_rate: int, pcm16le: bytes | None = None
+    ) -> str:
         """
         Transcribe buffered PCM16LE mono audio via an STT service.
 
@@ -39,7 +45,8 @@ class VoiceRepository:
         if not settings.STT_BASE_URL:
             raise RuntimeError("STT_BASE_URL is not configured")
 
-        wav_bytes = self._to_wav_bytes(sample_rate=sample_rate)
+        raw = pcm16le if pcm16le is not None else self.audio_snapshot()
+        wav_bytes = self._to_wav_bytes(pcm16le=raw, sample_rate=sample_rate)
         files = {"audio": ("audio.wav", wav_bytes, "audio/wav")}
         async with httpx.AsyncClient(base_url=settings.STT_BASE_URL) as client:
             resp = await client.post(
@@ -51,13 +58,52 @@ class VoiceRepository:
             data = resp.json()
             return str(data.get("text", "")).strip()
 
-    def _to_wav_bytes(self, *, sample_rate: int) -> bytes:
+    def _resample_to_target(self, *, pcm16le: bytes, sample_rate: int) -> bytes:
+        sr_in = int(sample_rate)
+        sr_out = int(self.target_sample_rate)
+        if sr_in <= 0:
+            raise ValueError("sample_rate must be positive")
+        if sr_in == sr_out:
+            return pcm16le
+        # Avoid stdlib audioop (removed in Python 3.13). This linear resampler is
+        # sufficient for STT input normalization in short utterances.
+        src = array("h")
+        src.frombytes(pcm16le)
+        if len(src) < 2:
+            return pcm16le
+
+        ratio = sr_out / float(sr_in)
+        out_len = max(1, int(round(len(src) * ratio)))
+        out = array("h", [0]) * out_len
+        step = sr_in / float(sr_out)
+
+        for i in range(out_len):
+            pos = i * step
+            j = int(pos)
+            if j >= len(src) - 1:
+                s = int(src[-1])
+            else:
+                frac = pos - j
+                s0 = int(src[j])
+                s1 = int(src[j + 1])
+                s = int(round((1.0 - frac) * s0 + frac * s1))
+            if s > 32767:
+                s = 32767
+            elif s < -32768:
+                s = -32768
+            out[i] = s
+
+        return out.tobytes()
+
+    def _to_wav_bytes(self, *, pcm16le: bytes, sample_rate: int) -> bytes:
+        # We standardize on 16kHz mono PCM16 for STT inputs.
+        pcm16_16k = self._resample_to_target(pcm16le=pcm16le, sample_rate=sample_rate)
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)  # PCM16
-            wf.setframerate(int(sample_rate))
-            wf.writeframes(bytes(self.audio_pcm16le))
+            wf.setframerate(int(self.target_sample_rate))
+            wf.writeframes(pcm16_16k)
         return buf.getvalue()
 
     async def generate_assistant_reply(self, *, transcript: str) -> str:
