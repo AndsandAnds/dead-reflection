@@ -3,6 +3,7 @@
 .PHONY: stt-bridge tts-bridge
 .PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg
 .PHONY: db-bench db-bench-worker db-bench-io-uring
+.PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -174,5 +175,38 @@ db-bench-io-uring:
 	@POSTGRES_IO_METHOD=io_uring docker compose up -d db || true
 	@sleep 2
 	@$(MAKE) db-bench || true
+
+# ---------------------------------------------------------------------------
+# App-like benchmark: pgvector memory retrieval (read-heavy).
+#
+# This simulates our "retrieve top-k memories by user+avatar" query pattern.
+# ---------------------------------------------------------------------------
+
+VEC_ROWS ?= 200000
+VEC_CLIENTS ?= 8
+VEC_THREADS ?= 4
+VEC_SECONDS ?= 30
+
+db-bench-vector-setup:
+	@echo "Setting up bench_vectors with $(VEC_ROWS) rows..."
+	@docker compose exec -T db sh -lc 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v vec_rows=$(VEC_ROWS) -f /workspace/bench/sql/vector_setup.sql >/dev/null'
+	@echo "bench_vectors ready."
+
+db-bench-vector:
+	@echo "Running pgvector read benchmark (current settings)..."
+	@docker compose exec -T db sh -lc 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Atc "SHOW io_method; SHOW effective_io_concurrency;"'
+	@docker compose exec -T db sh -lc 'pgbench -n -T $(VEC_SECONDS) -c $(VEC_CLIENTS) -j $(VEC_THREADS) -U "$$POSTGRES_USER" -D max_id=$(VEC_ROWS) -f /workspace/bench/pgbench/vector_read.sql "$$POSTGRES_DB"'
+
+db-bench-vector-worker:
+	@echo "Benchmarking vector read with io_method=worker..."
+	@POSTGRES_IO_METHOD=worker docker compose up -d db
+	@sleep 2
+	@$(MAKE) db-bench-vector
+
+db-bench-vector-io-uring:
+	@echo "Benchmarking vector read with io_method=io_uring (may fail if unsupported)..."
+	@POSTGRES_IO_METHOD=io_uring docker compose up -d db || true
+	@sleep 2
+	@$(MAKE) db-bench-vector || true
 
 

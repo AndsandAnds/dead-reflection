@@ -16,6 +16,8 @@ services:
       # Postgres 18+ images expect the mount at /var/lib/postgresql so data is
       # stored in a major-version-specific subdirectory (simplifies upgrades).
       - db_data:/var/lib/postgresql
+      # allow pgbench scripts to be referenced from inside the container
+      - ./bench:/workspace/bench:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reflections} -d ${POSTGRES_DB:-reflections}"]
       interval: 3s
