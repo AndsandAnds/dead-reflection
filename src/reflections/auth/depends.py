@@ -27,3 +27,18 @@ async def current_user_optional(
     return await svc.get_user_for_session_token(session, token=token)
 
 
+async def current_user_required(
+    user=Depends(current_user_optional),
+):
+    # Raise an HTTPException at the API layer (proper status code) rather than
+    # mapping through BaseServiceException (which becomes 4xx but not 401).
+    from fastapi import HTTPException  # type: ignore[import-not-found]
+    from starlette import status  # type: ignore[import-not-found]
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+    return user
+
+

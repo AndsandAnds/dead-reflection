@@ -101,6 +101,7 @@ export default function MemoryPage() {
         return;
       }
       setMe(u);
+      setUserId(u.id);
       await refresh();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,6 +121,7 @@ export default function MemoryPage() {
             <span style={{ fontSize: 12, color: "#666" }}>user_id</span>
             <input
               value={userId}
+              readOnly
               onChange={(e: any) => setUserId(e.target.value)}
               style={{ width: 360 }}
             />
