@@ -89,11 +89,19 @@ This is the punch list of what we still need to implement after getting:
 
 ## P1 — Voice auth + per-user memory (critical follow-up)
 - **Authenticate /ws/voice**
-  - Read HTTP-only session cookie during WS upgrade and attach `user_id` to the session
-  - Use authenticated `user_id` for:
-    - memory auto-ingest in voice turns (replace `settings.DEFAULT_USER_ID`)
-    - future conversation persistence
-  - Decide barge-in + session expiry semantics (what happens if cookie expires mid-stream)
+  - ✅ Read HTTP-only session cookie during WS upgrade and attach `user_id` to the session
+  - ✅ Use authenticated `user_id` for voice memory auto-ingest (no `DEFAULT_USER_ID` writes)
+  - ⏳ Decide barge-in + session expiry semantics (what happens if cookie expires mid-stream)
+
+## P1 — Avatar v0 (“talking head”)
+- **Avatar profiles**
+  - Create `avatars` table (id, user_id, name, persona_prompt, image_url, voice_config, created_at, updated_at)
+  - Add `users.active_avatar_id` (nullable) to pick the current avatar
+- **Voice UI**
+  - Show avatar image + name in `/voice`
+  - Animate “talking” during playback using output level (no full lip-sync yet)
+- **Image generation (local, optional)**
+  - Later: integrate local Stable Diffusion (ComfyUI/Automatic1111) to generate avatar image from prompt + seed
 
 ## P2 — Security + privacy hardening
 - **No accidental network**
