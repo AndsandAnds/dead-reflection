@@ -27,6 +27,15 @@ declare module "@testing-library/react" {
 
 declare module "@testing-library/jest-dom/vitest" { }
 
+// Minimal React hook typings for editor typecheck when node_modules isn't installed.
+declare module "react" {
+    export type ReactNode = any;
+    export function useEffect(effect: any, deps?: any[]): void;
+    export function useState<T = any>(initial?: T): [T, (v: any) => void];
+    export function useRef<T = any>(initial?: T): { current: T };
+    export function useMemo<T = any>(factory: () => T, deps: any[]): T;
+}
+
 declare global {
     // Allow JSX in TS files without relying on React's type declarations.
     namespace JSX {
