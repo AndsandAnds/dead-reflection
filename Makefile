@@ -156,7 +156,7 @@ ui-shell:
 
 test: test-backend test-frontend
 
-test-backend:
+test-backend: migrate
 	@# Prefer exec so output streams and we avoid recreating one-off containers.
 	@# Fallback to run --rm when api is not running.
 	@set -e; \
@@ -174,7 +174,7 @@ test-frontend:
 	  docker compose run --rm ui npm test; \
 	fi
 
-test-backend-fast:
+test-backend-fast: migrate
 	@set -e; \
 	if docker compose ps -q api | grep -q .; then \
 	  docker compose exec -T api poetry run pytest -q; \
@@ -182,7 +182,7 @@ test-backend-fast:
 	  docker compose run --rm api poetry run pytest -q; \
 	fi
 
-test-backend-verbose:
+test-backend-verbose: migrate
 	@set -e; \
 	if docker compose ps -q api | grep -q .; then \
 	  docker compose exec -T api poetry run pytest -vvv -s --tb=long; \
@@ -190,7 +190,7 @@ test-backend-verbose:
 	  docker compose run --rm api poetry run pytest -vvv -s --tb=long; \
 	fi
 
-test-backend-specific:
+test-backend-specific: migrate
 	@set -e; \
 	if [ -z "$(test_name)" ]; then \
 	  echo "Usage: make test-backend-specific test_name=<pattern>"; \

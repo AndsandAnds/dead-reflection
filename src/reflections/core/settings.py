@@ -51,5 +51,11 @@ class Settings(BaseSettings):
     MEMORY_AUTO_INGEST: bool = True
     MEMORY_CHUNK_TURN_WINDOW: int = 2
 
+    # Auth (HTTP-only cookie session)
+    AUTH_COOKIE_NAME: str = "reflections_session"
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_SAMESITE: str = "lax"  # lax|strict|none
+    AUTH_SESSION_TTL_DAYS: int = 30
+
 
 settings = Settings()

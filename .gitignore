@@ -3,6 +3,8 @@
 .env.*
 *.env
 
+ollama/
+
 # Python
 __pycache__/
 *.py[cod]
