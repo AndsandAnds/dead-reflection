@@ -32,6 +32,21 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
   - ⏳ Persist per-avatar voice config in DB (move into the avatar/profile system)
 
+## P0 — Auth + user identity (signup/login/logout)
+- **Users in Postgres**
+  - Create `users` table (id, email/handle, password_hash, created_at, last_login_at)
+  - Seed/dev convenience: optional “dev login” user creation via `make` target
+- **Session management**
+  - Create `sessions` table (id, user_id, created_at, expires_at, revoked_at, user_agent/ip optional)
+  - API auth: cookie-based session (preferred for local UI) or bearer token (CLI)
+- **Auth endpoints**
+  - `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
+  - Add auth dependency to protect memory + voice endpoints (or at least memory write/delete)
+- **UI flow**
+  - Login/signup screens
+  - Logout button + “current user” indicator
+  - Replace `DEFAULT_USER_ID`/`NEXT_PUBLIC_DEFAULT_USER_ID` with authenticated user id
+
 ## P1 — Conversation + memory integration
 - **Persist conversations**
   - Store turns in Postgres (thread/session table)
