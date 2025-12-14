@@ -34,18 +34,22 @@ This is the punch list of what we still need to implement after getting:
 
 ## P0 — Auth + user identity (signup/login/logout)
 - **Users in Postgres**
-  - Create `users` table (id, email/handle, password_hash, created_at, last_login_at)
-  - Seed/dev convenience: optional “dev login” user creation via `make` target
+  - ✅ Create `users` table (id, email, name, password_hash, created_at, last_login_at)
+  - ⏳ Seed/dev convenience: optional “dev login” user creation via `make` target
 - **Session management**
-  - Create `sessions` table (id, user_id, created_at, expires_at, revoked_at, user_agent/ip optional)
-  - API auth: cookie-based session (preferred for local UI) or bearer token (CLI)
+  - ✅ Create `sessions` table (id, user_id, token_hash, created_at, expires_at, revoked_at, user_agent/ip optional)
+  - ✅ API auth: HTTP-only cookie session (opaque token stored hashed in DB)
 - **Auth endpoints**
-  - `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
-  - Add auth dependency to protect memory + voice endpoints (or at least memory write/delete)
+  - ✅ `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`
+  - ✅ Protect memory endpoints with authenticated user (403 on mismatch)
 - **UI flow**
-  - Login/signup screens
-  - Logout button + “current user” indicator
-  - Replace `DEFAULT_USER_ID`/`NEXT_PUBLIC_DEFAULT_USER_ID` with authenticated user id
+  - ✅ Login/signup screens (modern “Lumina” UI)
+  - ✅ Logout button + “current user” indicator
+  - ✅ Memory UI uses authenticated user id (no default user id)
+  - ⏳ Remove remaining default-ID plumbing:
+    - `DEFAULT_USER_ID`/`NEXT_PUBLIC_DEFAULT_USER_ID`
+    - `DEFAULT_AVATAR_ID`/`NEXT_PUBLIC_DEFAULT_AVATAR_ID` (once avatars are real)
+  - ✅ Ensure backend tests run `make migrate` before pytest
 
 ## P1 — Conversation + memory integration
 - **Persist conversations**
@@ -56,6 +60,7 @@ This is the punch list of what we still need to implement after getting:
   - (Decision) No sensitive-info filter required for local-only operation
 - **“Inspect/Delete memory” UX**
   - ✅ Add a basic UI to browse and delete stored memories
+  - ⏳ Remove manual avatar_id/user_id inputs once user/avatar profiles exist
 
 ## P1 — Persona / avatar system
 - **Avatar profiles**
@@ -81,6 +86,14 @@ This is the punch list of what we still need to implement after getting:
   - Show actionable UI prompts (“Start STT bridge”, “Set STT_BASE_URL”, etc.)
 - **Performance instrumentation**
   - Log timing: capture duration → STT latency → LLM latency → TTS latency
+
+## P1 — Voice auth + per-user memory (critical follow-up)
+- **Authenticate /ws/voice**
+  - Read HTTP-only session cookie during WS upgrade and attach `user_id` to the session
+  - Use authenticated `user_id` for:
+    - memory auto-ingest in voice turns (replace `settings.DEFAULT_USER_ID`)
+    - future conversation persistence
+  - Decide barge-in + session expiry semantics (what happens if cookie expires mid-stream)
 
 ## P2 — Security + privacy hardening
 - **No accidental network**
