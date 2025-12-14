@@ -42,6 +42,21 @@ class SetActiveAvatarRequest(BaseModel):
     avatar_id: UUID | None = None
 
 
+class GenerateAvatarImageRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    negative_prompt: str | None = Field(default=None, max_length=4000)
+    width: int = Field(default=768, ge=256, le=1536)
+    height: int = Field(default=768, ge=256, le=1536)
+    steps: int = Field(default=24, ge=1, le=80)
+    cfg_scale: float = Field(default=6.5, ge=1.0, le=20.0)
+    sampler_name: str | None = Field(default=None, max_length=120)
+    seed: int = Field(default=-1, ge=-1)
+
+
+class GenerateAvatarImageResponse(BaseModel):
+    image_url: str
+
+
 class DeleteAvatarRequest(BaseModel):
     avatar_id: UUID
 

@@ -11,6 +11,8 @@ from reflections.avatars.schemas import (
     AvatarPublic,
     CreateAvatarRequest,
     DeleteAvatarRequest,
+    GenerateAvatarImageRequest,
+    GenerateAvatarImageResponse,
     ListAvatarsResponse,
     OkResponse,
     SetActiveAvatarRequest,
@@ -92,6 +94,39 @@ async def update_avatar(
     if a is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found")
     return _to_public(a)
+
+
+@router.post("/{avatar_id}/generate-image", response_model=GenerateAvatarImageResponse)
+async def generate_avatar_image(
+    avatar_id: str,
+    req: GenerateAvatarImageRequest,
+    session: Annotated[AsyncSession, Depends(database_session)],
+    svc: Annotated[AvatarsService, Depends(get_avatars_service)],
+    user=Depends(current_user_required),
+) -> GenerateAvatarImageResponse:
+    from uuid import UUID
+
+    try:
+        image_url = await svc.generate_image_a1111(
+            session,
+            user=user,
+            avatar_id=UUID(avatar_id),
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt,
+            width=req.width,
+            height=req.height,
+            steps=req.steps,
+            cfg_scale=req.cfg_scale,
+            sampler_name=req.sampler_name,
+            seed=req.seed,
+        )
+    except ValueError as exc:
+        if str(exc) == "avatar_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found"
+            )
+        raise
+    return GenerateAvatarImageResponse(image_url=image_url)
 
 
 @router.post("/active", response_model=OkResponse)

@@ -8,6 +8,7 @@ import { authMe, type AuthUser } from "../_lib/auth";
 import {
   avatarsCreate,
   avatarsDelete,
+  avatarsGenerateImage,
   avatarsList,
   avatarsSetActive,
   type Avatar,
@@ -26,6 +27,18 @@ export default function AvatarPage() {
   const [persona, setPersona] = useState<string>(
     "You are Lumina, a friendly and helpful personal assistant."
   );
+
+  const [prompt, setPrompt] = useState<string>(
+    "portrait photo of a friendly futuristic assistant, soft studio lighting, high detail, centered, looking at camera"
+  );
+  const [negativePrompt, setNegativePrompt] = useState<string>(
+    "blurry, low quality, extra fingers, bad hands, deformed, watermark, text, logo"
+  );
+  const [steps, setSteps] = useState<number>(24);
+  const [cfgScale, setCfgScale] = useState<number>(6.5);
+  const [width, setWidth] = useState<number>(768);
+  const [height, setHeight] = useState<number>(768);
+  const [seed, setSeed] = useState<number>(-1);
 
   const active = items.find((a) => a.id === activeId) ?? null;
 
@@ -78,6 +91,37 @@ export default function AvatarPage() {
     try {
       await avatarsDelete(id);
       await refresh();
+    } catch (e: any) {
+      setError(String(e?.message ?? e ?? "unknown_error"));
+      setStatus("error");
+    }
+  }
+
+  async function generateImage() {
+    if (!activeId) {
+      setError("Pick or create an avatar first");
+      setStatus("error");
+      return;
+    }
+    setStatus("loading");
+    setError("");
+    try {
+      const res = await avatarsGenerateImage(activeId, {
+        prompt,
+        negative_prompt: negativePrompt || undefined,
+        width,
+        height,
+        steps,
+        cfg_scale: cfgScale,
+        seed,
+      });
+      // Update local list so preview updates immediately.
+      setItems((prev: Avatar[]) =>
+        prev.map((a: Avatar) =>
+          a.id === activeId ? { ...a, image_url: res.image_url } : a
+        )
+      );
+      setStatus("idle");
     } catch (e: any) {
       setError(String(e?.message ?? e ?? "unknown_error"));
       setStatus("error");
@@ -153,6 +197,149 @@ export default function AvatarPage() {
             >
               {status === "loading" ? "Saving..." : "Create + set active"}
             </button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "1px solid #ddd",
+            borderRadius: 12,
+            background: "#fafafa",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#666" }}>
+            Generate image (Automatic1111)
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              display: "grid",
+              gridTemplateColumns: "1.2fr 0.8fr",
+              gap: 14,
+              alignItems: "start",
+            }}
+          >
+            <div style={{ display: "grid", gap: 10 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#666" }}>prompt</span>
+                <textarea
+                  value={prompt}
+                  onChange={(e: any) => setPrompt(e.target.value)}
+                  rows={4}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#666" }}>
+                  negative_prompt
+                </span>
+                <textarea
+                  value={negativePrompt}
+                  onChange={(e: any) => setNegativePrompt(e.target.value)}
+                  rows={3}
+                />
+              </label>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: 10,
+                }}
+              >
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>steps</span>
+                  <input
+                    value={steps}
+                    type="number"
+                    onChange={(e: any) => setSteps(Number(e.target.value))}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>cfg_scale</span>
+                  <input
+                    value={cfgScale}
+                    type="number"
+                    step="0.1"
+                    onChange={(e: any) => setCfgScale(Number(e.target.value))}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>seed</span>
+                  <input
+                    value={seed}
+                    type="number"
+                    onChange={(e: any) => setSeed(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, 1fr)",
+                  gap: 10,
+                }}
+              >
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>width</span>
+                  <input
+                    value={width}
+                    type="number"
+                    onChange={(e: any) => setWidth(Number(e.target.value))}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: "#666" }}>height</span>
+                  <input
+                    value={height}
+                    type="number"
+                    onChange={(e: any) => setHeight(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+              <button
+                onClick={() => void generateImage()}
+                disabled={status === "loading" || !activeId}
+              >
+                {status === "loading"
+                  ? "Generating..."
+                  : "Generate for active avatar"}
+              </button>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                Requires `A1111_BASE_URL` set in `.env` for the API container
+                (e.g. `http://host.docker.internal:7860`).
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid rgba(0,0,0,0.10)",
+                borderRadius: 12,
+                background: "white",
+                padding: 12,
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#666" }}>Preview</div>
+              <div style={{ marginTop: 10 }}>
+                {active?.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={active.image_url}
+                    alt={active.name}
+                    style={{ width: "100%", borderRadius: 10 }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      color: "#6b7280",
+                    }}
+                  >
+                    (no image yet)
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 

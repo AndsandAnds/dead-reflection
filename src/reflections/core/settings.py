@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     TTS_BASE_URL: str | None = None
     TTS_TIMEOUT_S: float = 30.0
 
+    # Automatic1111 (Stable Diffusion Web UI) - optional local image generation
+    A1111_BASE_URL: str | None = None
+    A1111_TIMEOUT_S: float = 120.0
+
     # Identity defaults (until the user/avatar system is fully implemented)
     DEFAULT_USER_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
     DEFAULT_AVATAR_ID: UUID | None = UUID("00000000-0000-0000-0000-000000000002")

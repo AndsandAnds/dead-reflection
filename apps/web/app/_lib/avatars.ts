@@ -60,4 +60,27 @@ export async function avatarsDelete(avatar_id: string): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+export async function avatarsGenerateImage(
+    avatar_id: string,
+    params: {
+        prompt: string;
+        negative_prompt?: string;
+        width?: number;
+        height?: number;
+        steps?: number;
+        cfg_scale?: number;
+        sampler_name?: string;
+        seed?: number;
+    }
+): Promise<{ image_url: string }> {
+    const res = await fetch(`${apiBase()}/avatars/${avatar_id}/generate-image`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(params),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+}
+
 

@@ -87,6 +87,21 @@ class AvatarsRepository:
         await session.flush()
         return res.scalar_one_or_none()
 
+    async def set_image_url(
+        self, session: AsyncSession, *, user_id: UUID, avatar_id: UUID, image_url: str
+    ) -> Avatar | None:
+        now = dt.datetime.now(dt.UTC)
+        stmt = (
+            sa.update(Avatar)
+            .where(Avatar.id == avatar_id)
+            .where(Avatar.user_id == user_id)
+            .values(image_url=image_url, updated_at=now)
+            .returning(Avatar)
+        )
+        res = await session.execute(stmt)
+        await session.flush()
+        return res.scalar_one_or_none()
+
     async def delete_for_user(
         self, session: AsyncSession, *, user_id: UUID, avatar_id: UUID
     ) -> int:
