@@ -51,6 +51,7 @@ async def signup(
             id=user.id,
             email=user.email,
             name=user.name,
+            active_avatar_id=user.active_avatar_id,
             created_at=user.created_at,
             last_login_at=user.last_login_at,
         )
@@ -82,6 +83,7 @@ async def login(
             id=user.id,
             email=user.email,
             name=user.name,
+            active_avatar_id=user.active_avatar_id,
             created_at=user.created_at,
             last_login_at=user.last_login_at,
         )
@@ -118,6 +120,7 @@ async def me(
             id=user.id,
             email=user.email,
             name=user.name,
+            active_avatar_id=user.active_avatar_id,
             created_at=user.created_at,
             last_login_at=user.last_login_at,
         )

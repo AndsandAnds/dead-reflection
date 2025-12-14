@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { LuminaTopBar } from "../_components/LuminaTopBar";
+import { TalkingAvatar } from "../_components/TalkingAvatar";
 import { authMe, type AuthUser } from "../_lib/auth";
+import { avatarsList, type Avatar } from "../_lib/avatars";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
 
@@ -46,6 +48,7 @@ export default function VoicePage() {
     "disconnected" | "connecting" | "idle" | "running" | "finalizing"
   >("idle");
   const [me, setMe] = useState<AuthUser | null>(null);
+  const [activeAvatar, setActiveAvatar] = useState<Avatar | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputLevel, setInputLevel] = useState<number>(0);
@@ -85,6 +88,14 @@ export default function VoicePage() {
         return;
       }
       setMe(u);
+      try {
+        const res = await avatarsList();
+        const activeId = (u as any)?.active_avatar_id ?? res.active_avatar_id;
+        const active = (res.items ?? []).find((a) => a.id === activeId) ?? null;
+        setActiveAvatar(active);
+      } catch {
+        // ignore (avatars are optional)
+      }
     })();
   }, [router]);
 
@@ -704,12 +715,23 @@ export default function VoicePage() {
             </>
           )}
           <div style={{ fontSize: 12, color: "#666" }}>WS: {wsUrl}</div>
+          <a href="/avatar" style={{ fontSize: 12 }}>
+            Avatar
+          </a>
           <a href="/memory" style={{ fontSize: 12 }}>
             Memory
           </a>
         </section>
 
         <section style={{ marginTop: 16, display: "flex", gap: 16 }}>
+          <div style={{ width: 260 }}>
+            <TalkingAvatar
+              name={activeAvatar?.name ?? "Lumina"}
+              imageUrl={activeAvatar?.image_url ?? null}
+              level={outputLevel}
+              size={220}
+            />
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: "#666" }}>Mic level</div>
             <div

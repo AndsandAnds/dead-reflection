@@ -8,9 +8,11 @@ injecting a fake MemoryService.
 import httpx
 import pytest  # type: ignore[import-not-found]
 from fastapi import FastAPI
+from uuid import UUID
 from uuid6 import uuid7  # type: ignore[import-not-found]
 
 from reflections.api.main import build_app
+from reflections.auth.depends import current_user_required
 from reflections.commons.depends import database_session as original_database_session
 from reflections.memory import api as memory_api
 
@@ -35,10 +37,17 @@ class FakeMemoryService:
 def memory_app() -> FastAPI:
     app = build_app()
 
+    # Stable fake user id for unit tests.
+    test_user_id = UUID("00000000-0000-0000-0000-000000000001")
+
     async def fake_database_session():
         yield None
 
+    class FakeUser:
+        id = test_user_id
+
     app.dependency_overrides[original_database_session] = fake_database_session
+    app.dependency_overrides[current_user_required] = lambda: FakeUser()
     app.dependency_overrides[memory_api.get_memory_service] = (
         lambda: FakeMemoryService()
     )

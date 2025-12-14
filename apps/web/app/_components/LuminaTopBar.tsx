@@ -70,6 +70,9 @@ export function LuminaTopBar({ user }: { user: AuthUser }) {
             <Link href="/voice" style={{ color: "#374151" }}>
               Voice
             </Link>
+            <Link href="/avatar" style={{ color: "#374151" }}>
+              Avatar
+            </Link>
             <Link href="/memory" style={{ color: "#374151" }}>
               Memory
             </Link>

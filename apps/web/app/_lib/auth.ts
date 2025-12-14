@@ -2,6 +2,7 @@ export type AuthUser = {
     id: string;
     email: string;
     name: string;
+    active_avatar_id?: string | null;
 };
 
 function apiBase(): string {

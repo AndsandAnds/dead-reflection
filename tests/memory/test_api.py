@@ -5,7 +5,8 @@ from uuid6 import uuid7  # type: ignore[import-not-found]
 
 @pytest.mark.anyio
 async def test_memory_ingest_smoke(memory_async_client: AsyncClient) -> None:
-    user_id = str(uuid7())
+    # Must match FakeUser injected by tests/memory/conftest.py
+    user_id = "00000000-0000-0000-0000-000000000001"
     avatar_id = str(uuid7())
     resp = await memory_async_client.post(
         "/memory/ingest",
@@ -24,7 +25,8 @@ async def test_memory_ingest_smoke(memory_async_client: AsyncClient) -> None:
 
 @pytest.mark.anyio
 async def test_memory_delete_smoke(memory_async_client: AsyncClient) -> None:
-    user_id = str(uuid7())
+    # Must match FakeUser injected by tests/memory/conftest.py
+    user_id = "00000000-0000-0000-0000-000000000001"
     resp = await memory_async_client.post(
         "/memory/delete",
         json={"user_id": user_id, "ids": [str(uuid7()), str(uuid7())]},
