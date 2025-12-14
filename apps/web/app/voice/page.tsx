@@ -65,6 +65,7 @@ export default function VoicePage() {
   const assistantHadDeltaRef = useRef<boolean>(false);
   const finalizeSentRef = useRef<boolean>(false);
   const spaceDownRef = useRef<boolean>(false);
+  const startInFlightRef = useRef<boolean>(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -476,6 +477,12 @@ export default function VoicePage() {
   }
 
   async function start() {
+    // Avoid double-start / repeated gestures while permissions are pending.
+    if (startInFlightRef.current) return;
+    const st = statusRef.current;
+    if (st === "running" || st === "connecting" || st === "finalizing") return;
+    startInFlightRef.current = true;
+
     // Barge-in: stop any previous playback immediately.
     try {
       playbackRef.current?.stop();
@@ -484,77 +491,104 @@ export default function VoicePage() {
       // ignore
     }
 
-    const ws = await ensureSocket();
-    if (!ws) return;
-
-    // Reset per-turn guards.
-    finalizeSentRef.current = false;
-
-    // Barge-in semantics: if the backend is still finalizing a previous turn
-    // (LLM/TTS), ask it to cancel any in-flight work.
     try {
-      ws.send(JSON.stringify({ type: "cancel" }));
-    } catch {
-      // ignore
-    }
+      const ws = await ensureSocket();
+      if (!ws) return;
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
-    });
-    streamRef.current = stream;
-    const ctx = await ensureAudioContext();
+      // Reset per-turn guards.
+      finalizeSentRef.current = false;
 
-    // Let the server know our capture sample rate (used for duration estimates).
-    ws.send(JSON.stringify({ type: "hello", sample_rate: ctx.sampleRate }));
-
-    const source = ctx.createMediaStreamSource(stream);
-    sourceRef.current = source;
-
-    // Capture via AudioWorklet (ScriptProcessorNode is deprecated).
-    const worklet = new AudioWorkletNode(ctx, "mic-capture", {
-      numberOfInputs: 1,
-      numberOfOutputs: 0,
-      channelCount: 1,
-    });
-    workletRef.current = worklet;
-    startedMsRef.current = performance.now();
-    lastSpeechMsRef.current = startedMsRef.current;
-
-    worklet.port.onmessage = (ev: MessageEvent) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      const frame = ev.data as Float32Array;
-      if (!frame || (frame as any).length === 0) return;
-      const lvl = rmsLevel(frame);
-      const now = performance.now();
-      if (now - lastUiTickMsRef.current > 50) {
-        lastUiTickMsRef.current = now;
-        setInputLevel(clamp01(lvl * 3.0));
+      // Barge-in semantics: if the backend is still finalizing a previous turn
+      // (LLM/TTS), ask it to cancel any in-flight work.
+      try {
+        ws.send(JSON.stringify({ type: "cancel" }));
+      } catch {
+        // ignore
       }
 
-      // Simple endpointing (silence timer): if user is quiet for a bit, auto-end.
-      // This keeps a push-to-talk UX (Start mic / Stop) but makes it feel more
-      // "hands free" for short utterances.
-      const speechThreshold = 0.02;
-      if (lvl >= speechThreshold) lastSpeechMsRef.current = now;
-      if (
-        statusRef.current === "running" &&
-        now - startedMsRef.current > 1200 &&
-        now - lastSpeechMsRef.current > 900
-      ) {
-        stop(false);
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+      } catch (err: any) {
+        const name = String(err?.name ?? "");
+        const msg = String(err?.message ?? "");
+        const isDenied =
+          name === "NotAllowedError" ||
+          name === "PermissionDeniedError" ||
+          msg.toLowerCase().includes("permission denied");
+        setMessages((prev: ChatMessage[]) => [
+          ...prev,
+          {
+            role: "system",
+            text: isDenied
+              ? "mic_permission_denied: allow microphone access for this site (browser address bar/lock icon) and reload."
+              : `mic_error: ${name || msg || "unknown_error"}`,
+          },
+        ]);
+        statusRef.current = "idle";
+        setStatus("idle");
         return;
       }
 
-      // Prefer binary WS frames for audio (lower overhead than base64 JSON).
-      // Apply basic backpressure by dropping frames if the socket buffer grows.
-      if (ws.bufferedAmount > 1_000_000) return;
-      const buf = pcm16leBufferFromFloat32(frame);
-      ws.send(buf);
-    };
+      streamRef.current = stream;
+      const ctx = await ensureAudioContext();
 
-    source.connect(worklet);
-    statusRef.current = "running";
-    setStatus("running");
+      // Let the server know our capture sample rate (used for duration estimates).
+      ws.send(JSON.stringify({ type: "hello", sample_rate: ctx.sampleRate }));
+
+      const source = ctx.createMediaStreamSource(stream);
+      sourceRef.current = source;
+
+      // Capture via AudioWorklet (ScriptProcessorNode is deprecated).
+      const worklet = new AudioWorkletNode(ctx, "mic-capture", {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+        channelCount: 1,
+      });
+      workletRef.current = worklet;
+      startedMsRef.current = performance.now();
+      lastSpeechMsRef.current = startedMsRef.current;
+
+      worklet.port.onmessage = (ev: MessageEvent) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const frame = ev.data as Float32Array;
+        if (!frame || (frame as any).length === 0) return;
+        const lvl = rmsLevel(frame);
+        const now = performance.now();
+        if (now - lastUiTickMsRef.current > 50) {
+          lastUiTickMsRef.current = now;
+          setInputLevel(clamp01(lvl * 3.0));
+        }
+
+        // Simple endpointing (silence timer): if user is quiet for a bit, auto-end.
+        // This keeps a push-to-talk UX (Start mic / Stop) but makes it feel more
+        // "hands free" for short utterances.
+        const speechThreshold = 0.02;
+        if (lvl >= speechThreshold) lastSpeechMsRef.current = now;
+        if (
+          statusRef.current === "running" &&
+          now - startedMsRef.current > 1200 &&
+          now - lastSpeechMsRef.current > 900
+        ) {
+          stop(false);
+          return;
+        }
+
+        // Prefer binary WS frames for audio (lower overhead than base64 JSON).
+        // Apply basic backpressure by dropping frames if the socket buffer grows.
+        if (ws.bufferedAmount > 1_000_000) return;
+        const buf = pcm16leBufferFromFloat32(frame);
+        ws.send(buf);
+      };
+
+      source.connect(worklet);
+      statusRef.current = "running";
+      setStatus("running");
+    } finally {
+      startInFlightRef.current = false;
+    }
   }
 
   function stop(cancel = false) {

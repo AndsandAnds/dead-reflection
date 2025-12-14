@@ -368,7 +368,11 @@ async def run_voice_session(websocket: WebSocket) -> None:
                             )
                 except Exception as exc:
                     # Don't fail the voice turn if memory ingestion fails.
-                    logger.info("memory_auto_ingest_failed: %s", exc)
+                    details = getattr(exc, "details", None)
+                    if details:
+                        logger.info("memory_auto_ingest_failed: %s (%s)", exc, details)
+                    else:
+                        logger.info("memory_auto_ingest_failed: %s", exc)
 
             await send(build_done_message())
         except asyncio.CancelledError:

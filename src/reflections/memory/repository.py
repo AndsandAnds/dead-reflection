@@ -153,6 +153,9 @@ class MemoryRepository:
         item_id = uuid7_uuid()
         # Pass embedding as pgvector literal: '[0.1,0.2,...]'
         embedding_literal = "[" + ",".join(f"{x:.8f}" for x in embedding) + "]"
+        # IMPORTANT: The Postgres column type is `vector`, so we must explicitly
+        # cast the literal; otherwise SQLAlchemy will bind it as VARCHAR.
+        embedding_expr = sa.literal_column(f"'{embedding_literal}'::vector")
         stmt = (
             sa.insert(memory_items)
             .values(
@@ -162,7 +165,7 @@ class MemoryRepository:
                 scope=scope,
                 kind=kind,
                 content=content,
-                embedding=embedding_literal,
+                embedding=embedding_expr,
                 source_session_id=source_session_id,
                 metadata=metadata,
             )

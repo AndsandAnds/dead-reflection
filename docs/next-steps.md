@@ -37,10 +37,10 @@ This is the punch list of what we still need to implement after getting:
   - Store turns in Postgres (thread/session table)
   - Replay context into the voice session on reconnect
 - **Memory write policy**
-  - Automatically ingest episodic memory from voice transcripts
+  - ✅ Automatically ingest episodic memory from voice transcripts
   - (Decision) No sensitive-info filter required for local-only operation
 - **“Inspect/Delete memory” UX**
-  - Add a basic UI to browse and delete stored memories
+  - ✅ Add a basic UI to browse and delete stored memories
 
 ## P1 — Persona / avatar system
 - **Avatar profiles**
@@ -52,7 +52,7 @@ This is the punch list of what we still need to implement after getting:
   - System prompt templates (persona + style + safety)
   - Tool routing via PydanticAI
 - **“Lumina” assistant identity**
-  - Add a default assistant persona called **Lumina** (personal assistant) via system prompt + UI copy
+  - ✅ Add a default assistant persona called **Lumina** (personal assistant) via system prompt + UI copy
   - Later: fine-tune/LoRA the `llama3.2` base into a “Lumina” checkpoint once we migrate to **vLLM**
 
 ## P1 — Reliability + developer UX
