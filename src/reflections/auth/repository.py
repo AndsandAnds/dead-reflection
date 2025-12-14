@@ -40,11 +40,13 @@ class AuthRepository:
         await session.flush()
         return user
 
-    async def touch_last_login(self, session: AsyncSession, *, user_id: UUID) -> None:
+    async def touch_last_login(
+        self, session: AsyncSession, *, user_id: UUID, at: dt.datetime
+    ) -> None:
         stmt = (
             sa.update(User)
             .where(User.id == user_id)
-            .values(last_login_at=sa.func.now())
+            .values(last_login_at=at)
         )
         await session.execute(stmt)
         await session.flush()

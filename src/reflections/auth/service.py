@@ -59,6 +59,8 @@ class AuthService:
             user_agent=None,
             ip=None,
         )
+        # Ensure server-default columns are loaded (created_at).
+        await session.refresh(user)
         await session.commit()
         return user, token
 
@@ -85,7 +87,11 @@ class AuthService:
             user_agent=None,
             ip=None,
         )
-        await self.repo.touch_last_login(session, user_id=user.id)
+        now = _utcnow()
+        await self.repo.touch_last_login(session, user_id=user.id, at=now)
+        # Keep the in-memory instance consistent; avoid triggering lazy loads
+        # during response serialization (can cause MissingGreenlet in async ORM).
+        user.last_login_at = now
         await session.commit()
         return user, token
 
