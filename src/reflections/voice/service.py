@@ -13,6 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect  # type: ignore[import-not-fo
 from pydantic import TypeAdapter  # type: ignore[import-not-found]
 
 from reflections.commons.logging import logger
+from reflections.auth.service import AuthService
 from reflections.core.db import database_manager
 from reflections.core.settings import settings
 from reflections.memory.schemas import Turn
@@ -40,6 +41,7 @@ class VoiceSessionState:
     recording: bool = False
     finalizing: bool = False
     sample_rate: int = 16000
+    user_id: Any | None = None
     messages: list[dict[str, str]] = field(default_factory=list)
     latest_partial_text: str = ""
     turn_task: asyncio.Task[None] | None = None
@@ -213,6 +215,22 @@ async def run_voice_session(websocket: WebSocket) -> None:
     # Voice sessions can optionally write to Postgres (memory/conversation).
     await database_manager.initialize()
 
+    # Auth (HTTP-only session cookie): attach user to this voice session if present.
+    try:
+        token = websocket.cookies.get(settings.AUTH_COOKIE_NAME)
+    except Exception:
+        token = None
+    if token:
+        try:
+            async with database_manager.session() as session:
+                user = await AuthService.create().get_user_for_session_token(
+                    session, token=token
+                )
+            if user is not None:
+                state.user_id = user.id
+        except Exception as exc:
+            logger.info("ws_auth_failed: %s", exc)
+
     send_lock = asyncio.Lock()
     finalize_lock = asyncio.Lock()
 
@@ -358,14 +376,19 @@ async def run_voice_session(websocket: WebSocket) -> None:
                         Turn(role="assistant", content=reply),
                     ]
                     if should_store_turns(turns):
-                        async with database_manager.session() as session:
-                            await get_memory_service().ingest_episodic(
-                                session,
-                                user_id=settings.DEFAULT_USER_ID,
-                                avatar_id=settings.DEFAULT_AVATAR_ID,
-                                turns=turns,
-                                chunk_turn_window=settings.MEMORY_CHUNK_TURN_WINDOW,
-                            )
+                        if state.user_id is None:
+                            # Voice WS can be unauthenticated (e.g. dev/testing); in that case
+                            # skip memory writes rather than writing to a shared default user.
+                            pass
+                        else:
+                            async with database_manager.session() as session:
+                                await get_memory_service().ingest_episodic(
+                                    session,
+                                    user_id=state.user_id,
+                                    avatar_id=None,
+                                    turns=turns,
+                                    chunk_turn_window=settings.MEMORY_CHUNK_TURN_WINDOW,
+                                )
                 except Exception as exc:
                     # Don't fail the voice turn if memory ingestion fails.
                     details = getattr(exc, "details", None)
