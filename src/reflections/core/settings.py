@@ -52,10 +52,13 @@ class Settings(BaseSettings):
     MEMORY_CHUNK_TURN_WINDOW: int = 2
 
     # Auth (HTTP-only cookie session)
-    AUTH_COOKIE_NAME: str = "reflections_session"
-    AUTH_COOKIE_SECURE: bool = False
-    AUTH_COOKIE_SAMESITE: str = "lax"  # lax|strict|none
-    AUTH_SESSION_TTL_DAYS: int = 30
+    AUTH_COOKIE_NAME: str
+    AUTH_COOKIE_SECURE: bool
+    AUTH_COOKIE_SAMESITE: str  # lax|strict|none
+    AUTH_SESSION_TTL_DAYS: int
+
+    # CORS (needed for browser UI on :3000 to call API on :8000 with cookies)
+    CORS_ORIGINS: str = "http://localhost:3000"
 
 
 settings = Settings()

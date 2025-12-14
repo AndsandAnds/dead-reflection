@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import MemoryPage from "./page";
 
+vi.mock("next/navigation", () => ({
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
 afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -11,9 +15,14 @@ afterEach(() => {
 
 describe("Memory page", () => {
     it("renders heading and calls inspect on mount", async () => {
-        const fetchSpy = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({ items: [] }),
+        const fetchSpy = vi.fn().mockImplementation(async (url) => {
+            if (String(url).endsWith("/auth/me")) {
+                return { ok: true, json: async () => ({ user: { id: "u1", email: "e", name: "Once" } }) };
+            }
+            if (String(url).endsWith("/memory/inspect")) {
+                return { ok: true, json: async () => ({ items: [] }) };
+            }
+            throw new Error(`Unhandled fetch: ${url}`);
         });
         globalThis.fetch = fetchSpy;
 
@@ -24,7 +33,9 @@ describe("Memory page", () => {
         // Wait until initial load fires.
         await screen.findByText(/\(no items\)/i);
         expect(fetchSpy).toHaveBeenCalled();
-        expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/memory\/inspect$/);
+        expect(
+            fetchSpy.mock.calls.some((c) => String(c[0]).includes("/memory/inspect"))
+        ).toBe(true);
     });
 });
 

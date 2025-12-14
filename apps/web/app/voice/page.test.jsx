@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VoicePage from "./page";
 
+vi.mock("next/navigation", () => ({
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
 let wsSends = [];
 let lastWsUrl = null;
 
@@ -88,6 +92,15 @@ beforeEach(() => {
     globalThis.WebSocket = MockWebSocket;
     globalThis.AudioContext = MockAudioContext;
     globalThis.AudioWorkletNode = MockAudioWorkletNode;
+    globalThis.fetch = vi.fn().mockImplementation(async (url) => {
+        if (String(url).endsWith("/auth/me")) {
+            return {
+                ok: true,
+                json: async () => ({ user: { id: "u1", email: "e", name: "Once" } }),
+            };
+        }
+        throw new Error(`Unhandled fetch: ${url}`);
+    });
     globalThis.requestAnimationFrame = () => 1;
     globalThis.cancelAnimationFrame = () => { };
     globalThis.navigator.mediaDevices = {

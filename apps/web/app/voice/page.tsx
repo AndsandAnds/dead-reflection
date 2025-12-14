@@ -2,7 +2,11 @@
 
 /// <reference path="../../shims.d.ts" />
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+
+import { LuminaTopBar } from "../_components/LuminaTopBar";
+import { authMe, type AuthUser } from "../_lib/auth";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
 
@@ -37,9 +41,11 @@ function arrayBufferFromBase64(b64: string): ArrayBuffer {
 }
 
 export default function VoicePage() {
+  const router = useRouter();
   const [status, setStatus] = useState<
     "disconnected" | "connecting" | "idle" | "running" | "finalizing"
   >("idle");
+  const [me, setMe] = useState<AuthUser | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputLevel, setInputLevel] = useState<number>(0);
@@ -70,6 +76,17 @@ export default function VoicePage() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    (async () => {
+      const u = await authMe();
+      if (!u) {
+        router.replace("/login");
+        return;
+      }
+      setMe(u);
+    })();
+  }, [router]);
 
   useEffect(() => {
     const isEditableTarget = (t: EventTarget | null): boolean => {
@@ -659,113 +676,123 @@ export default function VoicePage() {
   }, []);
 
   return (
-    <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ marginTop: 0 }}>Lumina</h1>
-      <p style={{ color: "#444" }}>
-        MVP voice streaming to FastAPI WebSocket (STT currently stubbed
-        server-side).
-      </p>
+    <main>
+      {me ? <LuminaTopBar user={me} /> : null}
+      <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+        <h1 style={{ marginTop: 0 }}>Lumina</h1>
+        <p style={{ color: "#444" }}>
+          MVP voice streaming to FastAPI WebSocket (STT currently stubbed
+          server-side).
+        </p>
 
-      <section style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        {status !== "running" ? (
-          <button
-            onClick={start}
-            disabled={status === "connecting" || status === "finalizing"}
-          >
-            {status === "connecting"
-              ? "Connecting..."
-              : status === "finalizing"
-              ? "Finalizing..."
-              : "Start mic"}
-          </button>
-        ) : (
-          <>
-            <button onClick={() => stop(false)}>Stop (transcribe)</button>
-            <button onClick={() => stop(true)}>Cancel</button>
-          </>
-        )}
-        <div style={{ fontSize: 12, color: "#666" }}>WS: {wsUrl}</div>
-        <a href="/memory" style={{ fontSize: 12 }}>
-          Memory
-        </a>
-      </section>
+        <section style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          {status !== "running" ? (
+            <button
+              onClick={start}
+              disabled={status === "connecting" || status === "finalizing"}
+            >
+              {status === "connecting"
+                ? "Connecting..."
+                : status === "finalizing"
+                ? "Finalizing..."
+                : "Start mic"}
+            </button>
+          ) : (
+            <>
+              <button onClick={() => stop(false)}>Stop (transcribe)</button>
+              <button onClick={() => stop(true)}>Cancel</button>
+            </>
+          )}
+          <div style={{ fontSize: 12, color: "#666" }}>WS: {wsUrl}</div>
+          <a href="/memory" style={{ fontSize: 12 }}>
+            Memory
+          </a>
+        </section>
 
-      <section style={{ marginTop: 16, display: "flex", gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: "#666" }}>Mic level</div>
-          <div
-            style={{
-              marginTop: 6,
-              height: 10,
-              borderRadius: 999,
-              background: "#e5e7eb",
-              overflow: "hidden",
-              border: "1px solid #ddd",
-            }}
-          >
+        <section style={{ marginTop: 16, display: "flex", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#666" }}>Mic level</div>
             <div
               style={{
-                height: "100%",
-                width: `${Math.round(inputLevel * 100)}%`,
-                background: inputLevel > 0.6 ? "#ef4444" : "#3b82f6",
-                transition: "width 40ms linear",
+                marginTop: 6,
+                height: 10,
+                borderRadius: 999,
+                background: "#e5e7eb",
+                overflow: "hidden",
+                border: "1px solid #ddd",
               }}
-            />
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.round(inputLevel * 100)}%`,
+                  background: inputLevel > 0.6 ? "#ef4444" : "#3b82f6",
+                  transition: "width 40ms linear",
+                }}
+              />
+            </div>
           </div>
-        </div>
 
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, color: "#666" }}>Output level</div>
-          <div
-            style={{
-              marginTop: 6,
-              height: 10,
-              borderRadius: 999,
-              background: "#e5e7eb",
-              overflow: "hidden",
-              border: "1px solid #ddd",
-            }}
-          >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#666" }}>Output level</div>
             <div
               style={{
-                height: "100%",
-                width: `${Math.round(outputLevel * 100)}%`,
-                background: outputLevel > 0.6 ? "#ef4444" : "#10b981",
-                transition: "width 40ms linear",
+                marginTop: 6,
+                height: 10,
+                borderRadius: 999,
+                background: "#e5e7eb",
+                overflow: "hidden",
+                border: "1px solid #ddd",
               }}
-            />
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.round(outputLevel * 100)}%`,
+                  background: outputLevel > 0.6 ? "#ef4444" : "#10b981",
+                  transition: "width 40ms linear",
+                }}
+              />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section
-        style={{
-          marginTop: 16,
-          padding: 16,
-          border: "1px solid #ddd",
-          borderRadius: 12,
-          background: "#fafafa",
-        }}
-      >
-        <div style={{ fontSize: 12, color: "#666" }}>Conversation</div>
-        <div
-          style={{ marginTop: 8, fontFamily: "ui-monospace, Menlo, monospace" }}
+        <section
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "1px solid #ddd",
+            borderRadius: 12,
+            background: "#fafafa",
+          }}
         >
-          {messages.length === 0 && !partial ? "(waiting for audio...)" : null}
-          {messages.map((m: ChatMessage, idx: number) => (
-            <div key={idx} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, color: "#666" }}>{m.role}</div>
-              <div>{m.text}</div>
-            </div>
-          ))}
-          {partial ? (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 12, color: "#666" }}>user (partial)</div>
-              <div>{partial}</div>
-            </div>
-          ) : null}
-        </div>
-      </section>
+          <div style={{ fontSize: 12, color: "#666" }}>Conversation</div>
+          <div
+            style={{
+              marginTop: 8,
+              fontFamily: "ui-monospace, Menlo, monospace",
+            }}
+          >
+            {messages.length === 0 && !partial
+              ? "(waiting for audio...)"
+              : null}
+            {messages.map((m: ChatMessage, idx: number) => (
+              <div key={idx} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>{m.role}</div>
+                <div>{m.text}</div>
+              </div>
+            ))}
+            {partial ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12, color: "#666" }}>
+                  user (partial)
+                </div>
+                <div>{partial}</div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
