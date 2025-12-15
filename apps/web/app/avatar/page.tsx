@@ -21,6 +21,7 @@ export default function AvatarPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   const [name, setName] = useState<string>("Lumina");
   const [imageUrl, setImageUrl] = useState<string>("");
@@ -105,6 +106,7 @@ export default function AvatarPage() {
     }
     setStatus("loading");
     setError("");
+    setIsGenerating(true);
     try {
       const res = await avatarsGenerateImage(activeId, {
         prompt,
@@ -121,10 +123,14 @@ export default function AvatarPage() {
           a.id === activeId ? { ...a, image_url: res.image_url } : a
         )
       );
+      // Also refresh from the server so we reflect the persisted image_url.
+      await refresh();
       setStatus("idle");
     } catch (e: any) {
       setError(String(e?.message ?? e ?? "unknown_error"));
       setStatus("error");
+    } finally {
+      setIsGenerating(false);
     }
   }
 
@@ -150,6 +156,12 @@ export default function AvatarPage() {
 
   return (
     <main>
+      <style>{`
+        @keyframes luminaShimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
       {me ? <LuminaTopBar user={me} /> : null}
       <div style={{ padding: 24, maxWidth: 980, margin: "0 auto" }}>
         <h1 style={{ marginTop: 0 }}>Avatar</h1>
@@ -327,7 +339,25 @@ export default function AvatarPage() {
             >
               <div style={{ fontSize: 12, color: "#666" }}>Preview</div>
               <div style={{ marginTop: 10 }}>
-                {active?.image_url ? (
+                {isGenerating ? (
+                  <div
+                    style={{
+                      width: "100%",
+                      aspectRatio: "1 / 1",
+                      borderRadius: 10,
+                      background:
+                        "linear-gradient(90deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.06) 100%)",
+                      backgroundSize: "200% 100%",
+                      animation: "luminaShimmer 1.4s ease-in-out infinite",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "#6b7280",
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                    }}
+                  >
+                    generating…
+                  </div>
+                ) : active?.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={active.image_url}
@@ -345,6 +375,16 @@ export default function AvatarPage() {
                   </div>
                 )}
               </div>
+              {active?.image_url ? (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, color: "#666" }}>image_url</div>
+                  <input
+                    readOnly
+                    value={active.image_url}
+                    style={{ width: "100%", fontSize: 12 }}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
