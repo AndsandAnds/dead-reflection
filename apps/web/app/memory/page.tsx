@@ -43,17 +43,19 @@ export default function MemoryPage() {
     .filter(([, v]) => v)
     .map(([k]) => k);
 
-  async function refresh() {
+  async function refresh(opts?: { userId?: string; avatarId?: string }) {
     setStatus("loading");
     setError("");
     try {
+      const uid = opts?.userId ?? userId;
+      const aid = opts?.avatarId ?? avatarId;
       const res = await fetch(`${apiBase}/memory/inspect`, {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          user_id: userId,
-          avatar_id: avatarId || null,
+          user_id: uid,
+          avatar_id: aid || null,
           limit: 100,
           offset: 0,
           include_user_scope: true,
@@ -86,7 +88,7 @@ export default function MemoryPage() {
         body: JSON.stringify({ user_id: userId, ids: selectedIds }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await refresh();
+      await refresh({ userId });
     } catch (e: any) {
       setError(String(e?.message ?? e ?? "unknown_error"));
       setStatus("error");
@@ -102,7 +104,7 @@ export default function MemoryPage() {
       }
       setMe(u);
       setUserId(u.id);
-      await refresh();
+      await refresh({ userId: u.id });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

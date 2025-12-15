@@ -49,6 +49,17 @@ services:
       DEFAULT_AVATAR_ID: ${DEFAULT_AVATAR_ID:-00000000-0000-0000-0000-000000000002}
       MEMORY_AUTO_INGEST: ${MEMORY_AUTO_INGEST:-true}
       MEMORY_CHUNK_TURN_WINDOW: ${MEMORY_CHUNK_TURN_WINDOW:-2}
+      # Avatar image generation (Diffusers SDXL)
+      AVATAR_IMAGE_ENGINE: ${AVATAR_IMAGE_ENGINE:-diffusers_sdxl}
+      DIFFUSERS_SDXL_BASE_MODEL: ${DIFFUSERS_SDXL_BASE_MODEL:-/app/stable-diffusion/base}
+      DIFFUSERS_SDXL_REFINER_MODEL: ${DIFFUSERS_SDXL_REFINER_MODEL:-/app/stable-diffusion/refiner}
+      DIFFUSERS_LOCAL_FILES_ONLY: ${DIFFUSERS_LOCAL_FILES_ONLY:-true}
+      # NOTE: Docker on macOS cannot use Metal/MPS. Default to CPU for containers.
+      # For MPS acceleration, run a host bridge and point the API at it.
+      DIFFUSERS_DEVICE: ${DIFFUSERS_DEVICE:-cpu}
+      DIFFUSERS_DTYPE: ${DIFFUSERS_DTYPE:-float32}
+      DIFFUSERS_HIGH_NOISE_FRAC: ${DIFFUSERS_HIGH_NOISE_FRAC:-0.8}
+      DIFFUSERS_ENABLE_COMPILE: ${DIFFUSERS_ENABLE_COMPILE:-false}
     depends_on:
       db:
         condition: service_healthy

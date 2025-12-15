@@ -214,6 +214,16 @@ def test_voice_ws_auto_ingests_memory_when_enabled(
     # Avoid loading sentence-transformers in unit tests.
     monkeypatch.setattr(voice_service, "get_memory_service", lambda: FakeMemSvc())
 
+    # Pretend the WS is authenticated (so memory auto-ingest has a user_id).
+    class FakeUser:
+        id = voice_service.settings.DEFAULT_USER_ID
+
+    class FakeAuthSvc:
+        async def get_user_for_session_token(self, session, *, token):  # type: ignore[no-untyped-def]
+            return FakeUser()
+
+    monkeypatch.setattr(voice_service.AuthService, "create", lambda: FakeAuthSvc())
+
     class DummySession:
         async def __aenter__(self):  # type: ignore[no-untyped-def]
             return object()
@@ -229,7 +239,9 @@ def test_voice_ws_auto_ingests_memory_when_enabled(
         voice_service.database_manager, "session", lambda: DummySession()
     )
 
-    with client.websocket_connect("/ws/voice") as ws:
+    with client.websocket_connect(
+        "/ws/voice", headers={"cookie": "reflections_session=tok"}
+    ) as ws:
         _ = ws.receive_json()  # ready
         ws.send_json({"type": "hello", "sample_rate": 16000})
         ws.send_bytes(b"\x00\x01" * 1600)

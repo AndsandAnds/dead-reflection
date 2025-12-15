@@ -6,8 +6,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
 from reflections.avatars.a1111 import get_a1111_client
+from reflections.avatars.diffusers_sdxl import DiffusersSDXLException, get_diffusers_sdxl_client
 from reflections.avatars.repository import AvatarsRepository
 from reflections.auth.models import Avatar, User
+from reflections.core.settings import settings
 
 
 @dataclass
@@ -135,5 +137,89 @@ class AvatarsService:
             raise ValueError("avatar_not_found")
         await session.commit()
         return image_url
+
+    async def generate_image_diffusers_sdxl(
+        self,
+        session: AsyncSession,
+        *,
+        user: User,
+        avatar_id: UUID,
+        prompt: str,
+        negative_prompt: str | None,
+        width: int,
+        height: int,
+        steps: int,
+        cfg_scale: float,
+        seed: int,
+    ) -> str:
+        a = await self.repo.get_for_user(session, user_id=user.id, avatar_id=avatar_id)
+        if a is None:
+            raise ValueError("avatar_not_found")
+
+        try:
+            image_url = await get_diffusers_sdxl_client().txt2img(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+            )
+        except DiffusersSDXLException:
+            raise
+        updated = await self.repo.set_image_url(
+            session, user_id=user.id, avatar_id=avatar_id, image_url=image_url
+        )
+        if updated is None:
+            raise ValueError("avatar_not_found")
+        await session.commit()
+        return image_url
+
+    async def generate_image(
+        self,
+        session: AsyncSession,
+        *,
+        user: User,
+        avatar_id: UUID,
+        prompt: str,
+        negative_prompt: str | None,
+        width: int,
+        height: int,
+        steps: int,
+        cfg_scale: float,
+        sampler_name: str | None,
+        seed: int,
+        engine: str | None = None,
+    ) -> str:
+        chosen = (engine or settings.AVATAR_IMAGE_ENGINE or "a1111").lower().strip()
+        if chosen in {"diffusers_sdxl", "diffusers", "sdxl"}:
+            return await self.generate_image_diffusers_sdxl(
+                session,
+                user=user,
+                avatar_id=avatar_id,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+            )
+        if chosen in {"a1111", "automatic1111"}:
+            return await self.generate_image_a1111(
+                session,
+                user=user,
+                avatar_id=avatar_id,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                sampler_name=sampler_name,
+                seed=seed,
+            )
+        raise ValueError("engine_not_supported")
 
 

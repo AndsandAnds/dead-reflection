@@ -95,13 +95,16 @@ This is the punch list of what we still need to implement after getting:
 
 ## P1 — Avatar v0 (“talking head”)
 - **Avatar profiles**
-  - Create `avatars` table (id, user_id, name, persona_prompt, image_url, voice_config, created_at, updated_at)
-  - Add `users.active_avatar_id` (nullable) to pick the current avatar
+  - ✅ Create `avatars` table (id, user_id, name, persona_prompt, image_url, voice_config, created_at, updated_at)
+  - ✅ Add `users.active_avatar_id` (nullable) to pick the current avatar
 - **Voice UI**
-  - Show avatar image + name in `/voice`
-  - Animate “talking” during playback using output level (no full lip-sync yet)
+  - ✅ Show avatar image + name in `/voice`
+  - ✅ Animate “talking” during playback using output level (no full lip-sync yet)
 - **Image generation (local, optional)**
-  - Later: integrate local Stable Diffusion (ComfyUI/Automatic1111) to generate avatar image from prompt + seed
+  - ✅ Add `/avatars/{id}/generate-image` and UI controls in `/avatar`
+  - ✅ Support **Diffusers SDXL base + refiner** (quality-first; local files only)
+  - ✅ Keep Automatic1111 as a fallback engine
+  - Note: Docker on macOS can’t use Metal/MPS; run on CPU in-container or add a host bridge for MPS acceleration
 
 ## P2 — Security + privacy hardening
 - **No accidental network**

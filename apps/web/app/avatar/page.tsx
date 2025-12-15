@@ -130,13 +130,20 @@ export default function AvatarPage() {
 
   useEffect(() => {
     (async () => {
-      const u = await authMe();
-      if (!u) {
-        router.replace("/login");
-        return;
+      try {
+        const u = await authMe();
+        if (!u) {
+          router.replace("/login");
+          return;
+        }
+        setMe(u);
+        await refresh();
+      } catch {
+        setError(
+          "API unreachable (failed to fetch /auth/me). Is the API container running?"
+        );
+        setStatus("error");
       }
-      setMe(u);
-      await refresh();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -209,9 +216,7 @@ export default function AvatarPage() {
             background: "#fafafa",
           }}
         >
-          <div style={{ fontSize: 12, color: "#666" }}>
-            Generate image (Automatic1111)
-          </div>
+          <div style={{ fontSize: 12, color: "#666" }}>Generate image</div>
           <div
             style={{
               marginTop: 10,
@@ -306,8 +311,9 @@ export default function AvatarPage() {
                   : "Generate for active avatar"}
               </button>
               <div style={{ fontSize: 12, color: "#6b7280" }}>
-                Requires `A1111_BASE_URL` set in `.env` for the API container
-                (e.g. `http://host.docker.internal:7860`).
+                Uses server-side `AVATAR_IMAGE_ENGINE` (recommended:
+                `diffusers_sdxl` for SDXL base+refiner quality). Configure
+                either Diffusers model paths or `A1111_BASE_URL` in `.env`.
               </div>
             </div>
 

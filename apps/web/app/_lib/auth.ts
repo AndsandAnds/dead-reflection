@@ -10,10 +10,16 @@ function apiBase(): string {
 }
 
 export async function authMe(): Promise<AuthUser | null> {
-    const res = await fetch(`${apiBase()}/auth/me`, { credentials: "include" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.user ?? null;
+    try {
+        const res = await fetch(`${apiBase()}/auth/me`, { credentials: "include" });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data?.user ?? null;
+    } catch {
+        // Network error (API down / wrong NEXT_PUBLIC_API_BASE_URL / CORS handshake issues).
+        // Treat as unauthenticated to avoid crashing pages.
+        return null;
+    }
 }
 
 export async function authLogin(params: {

@@ -43,6 +43,8 @@ class SetActiveAvatarRequest(BaseModel):
 
 
 class GenerateAvatarImageRequest(BaseModel):
+    # Optional override (otherwise server uses AVATAR_IMAGE_ENGINE).
+    engine: str | None = Field(default=None, max_length=64)
     prompt: str = Field(min_length=1, max_length=4000)
     negative_prompt: str | None = Field(default=None, max_length=4000)
     width: int = Field(default=768, ge=256, le=1536)

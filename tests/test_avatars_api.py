@@ -29,10 +29,11 @@ def test_avatars_generate_image_updates_avatar(client, monkeypatch):  # type: ig
     aid = avatar_id
 
     class FakeSvc:
-        async def generate_image_a1111(  # type: ignore[no-untyped-def]
-            self, session, *, user, avatar_id, **kwargs
+        async def generate_image(  # type: ignore[no-untyped-def]
+            self, session, *, user, avatar_id, engine=None, **kwargs
         ):
             assert str(avatar_id) == str(aid)
+            assert engine == "diffusers_sdxl"
             return "data:image/png;base64,AAA"
 
     client.app.dependency_overrides[avatars_api.get_avatars_service] = lambda: FakeSvc()
@@ -41,6 +42,7 @@ def test_avatars_generate_image_updates_avatar(client, monkeypatch):  # type: ig
     r = client.post(
         f"/avatars/{avatar_id}/generate-image",
         json={
+            "engine": "diffusers_sdxl",
             "prompt": "portrait of lumina",
             "negative_prompt": "blurry",
             "width": 512,

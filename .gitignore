@@ -3,6 +3,10 @@
 .env.*
 *.env
 
+# Local model weights (keep out of git)
+stable-diffusion/
+src/reflections/avatars/models/
+
 ollama/
 
 # Python

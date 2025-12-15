@@ -47,6 +47,23 @@ class Settings(BaseSettings):
     A1111_BASE_URL: str | None = None
     A1111_TIMEOUT_S: float = 120.0
 
+    # Avatar image generation engine
+    # - a1111: Automatic1111 Web UI API
+    # - diffusers_sdxl: Diffusers SDXL base (+ optional refiner) running in-process
+    AVATAR_IMAGE_ENGINE: str = "a1111"
+
+    # Diffusers SDXL (quality-first, local-only). Point these at local directories
+    # or model IDs that are already present in the local HF cache.
+    DIFFUSERS_SDXL_BASE_MODEL: str | None = None
+    DIFFUSERS_SDXL_REFINER_MODEL: str | None = None
+    DIFFUSERS_LOCAL_FILES_ONLY: bool = True
+    # NOTE: Docker on macOS cannot use Metal/MPS. If running the API in Docker,
+    # set device=cpu (or run a host bridge for MPS).
+    DIFFUSERS_DEVICE: str = "cpu"  # apple silicon (host): mps; linux/nvidia: cuda; cpu: cpu
+    DIFFUSERS_DTYPE: str = "float32"  # float16|float32
+    DIFFUSERS_HIGH_NOISE_FRAC: float = 0.8
+    DIFFUSERS_ENABLE_COMPILE: bool = False
+
     # Identity defaults (until the user/avatar system is fully implemented)
     DEFAULT_USER_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
     DEFAULT_AVATAR_ID: UUID | None = UUID("00000000-0000-0000-0000-000000000002")
@@ -62,7 +79,8 @@ class Settings(BaseSettings):
     AUTH_SESSION_TTL_DAYS: int
 
     # CORS (needed for browser UI on :3000 to call API on :8000 with cookies)
-    CORS_ORIGINS: str = "http://localhost:3000"
+    # Include both hostnames since people often use either in the browser.
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 settings = Settings()

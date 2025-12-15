@@ -61,6 +61,16 @@ We currently use a small **host-run TTS bridge** (`reflections.tts_bridge`) so w
 Note: if FastAPI runs in Docker (default), `TTS_BASE_URL` should usually be
 `http://host.docker.internal:9002` so the container can reach the host bridge.
 
+### Image generation (SDXL) on Apple Silicon
+We support optional local avatar image generation via Stable Diffusion XL (SDXL) using **Diffusers** (base + refiner).
+
+Important Apple Silicon constraint:
+- **Metal/MPS acceleration is not available inside Docker on macOS**, so a Dockerized API will typically have **CPU-only PyTorch**.
+
+Practical implication:
+- If the API is running in Docker: set `DIFFUSERS_DEVICE=cpu` (works, but slower).
+- For best performance on your Mac: run an image-gen bridge (same pattern as STT/TTS) on the **host** and call it from the container via `host.docker.internal`.
+
 Suggested Apple Silicon defaults:
 - **LLM (Ollama)**: start with a **7B–8B** instruct model (quality/latency sweet spot).
 - **Embeddings**: SentenceTransformers runs fine on CPU; you can explore MPS acceleration later if needed.

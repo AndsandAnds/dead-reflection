@@ -107,10 +107,11 @@ async def generate_avatar_image(
     from uuid import UUID
 
     try:
-        image_url = await svc.generate_image_a1111(
+        image_url = await svc.generate_image(
             session,
             user=user,
             avatar_id=UUID(avatar_id),
+            engine=req.engine,
             prompt=req.prompt,
             negative_prompt=req.negative_prompt,
             width=req.width,
@@ -124,6 +125,10 @@ async def generate_avatar_image(
         if str(exc) == "avatar_not_found":
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found"
+            )
+        if str(exc) == "engine_not_supported":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Engine not supported"
             )
         raise
     return GenerateAvatarImageResponse(image_url=image_url)
