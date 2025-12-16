@@ -564,7 +564,17 @@ export default function VoicePage() {
       const ctx = await ensureAudioContext();
 
       // Let the server know our capture sample rate (used for duration estimates).
-      ws.send(JSON.stringify({ type: "hello", sample_rate: ctx.sampleRate }));
+      const voice =
+        (activeAvatar as any)?.voice_config?.voice ||
+        (activeAvatar as any)?.voice_config?.tts_voice ||
+        null;
+      ws.send(
+        JSON.stringify({
+          type: "hello",
+          sample_rate: ctx.sampleRate,
+          ...(voice ? { voice: String(voice) } : {}),
+        })
+      );
 
       const source = ctx.createMediaStreamSource(stream);
       sourceRef.current = source;

@@ -42,6 +42,7 @@ class VoiceSessionState:
     finalizing: bool = False
     sample_rate: int = 16000
     user_id: Any | None = None
+    tts_voice: str | None = None
     messages: list[dict[str, str]] = field(default_factory=list)
     latest_partial_text: str = ""
     turn_task: asyncio.Task[None] | None = None
@@ -325,7 +326,9 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     item = await tts_q.get()
                     if item is None:
                         return
-                    wav_bytes = await repo.synthesize_tts_wav(text=item)
+                    wav_bytes = await repo.synthesize_tts_wav(
+                        text=item, voice=state.tts_voice
+                    )
                     await send(
                         ServerTtsChunk(
                             seq=tts_seq,
@@ -577,6 +580,12 @@ async def run_voice_session(websocket: WebSocket) -> None:
             if parsed.type == "hello":
                 if parsed.sample_rate:
                     state.sample_rate = int(parsed.sample_rate)
+                # Cache per-session voice selection (derived from active avatar in the UI).
+                # This is best-effort: if not provided, server-side defaults apply.
+                try:
+                    state.tts_voice = str(parsed.voice).strip() if parsed.voice else None
+                except Exception:
+                    state.tts_voice = None
                 continue
 
             if parsed.type == "audio_frame":

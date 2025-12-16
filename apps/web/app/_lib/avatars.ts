@@ -28,6 +28,7 @@ export async function avatarsCreate(params: {
     name: string;
     persona_prompt?: string;
     image_url?: string;
+    voice_config?: Record<string, any> | null;
     set_active?: boolean;
 }): Promise<Avatar> {
     const res = await fetch(`${apiBase()}/avatars`, {
@@ -75,6 +76,25 @@ export async function avatarsGenerateImage(
 ): Promise<{ image_url: string }> {
     const res = await fetch(`${apiBase()}/avatars/${avatar_id}/generate-image`, {
         method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(params),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+}
+
+export async function avatarsUpdate(
+    avatar_id: string,
+    params: {
+        name?: string | null;
+        persona_prompt?: string | null;
+        image_url?: string | null;
+        voice_config?: Record<string, any> | null;
+    }
+): Promise<Avatar> {
+    const res = await fetch(`${apiBase()}/avatars/${avatar_id}`, {
+        method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(params),

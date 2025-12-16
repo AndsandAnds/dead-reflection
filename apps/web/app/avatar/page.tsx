@@ -11,6 +11,7 @@ import {
   avatarsGenerateImage,
   avatarsList,
   avatarsSetActive,
+  avatarsUpdate,
   type Avatar,
 } from "../_lib/avatars";
 
@@ -28,6 +29,7 @@ export default function AvatarPage() {
   const [persona, setPersona] = useState<string>(
     "You are Lumina, a friendly and helpful personal assistant."
   );
+  const [ttsVoice, setTtsVoice] = useState<string>("");
 
   const [prompt, setPrompt] = useState<string>(
     "portrait photo of a friendly futuristic assistant, soft studio lighting, high detail, centered, looking at camera"
@@ -42,6 +44,15 @@ export default function AvatarPage() {
   const [seed, setSeed] = useState<number>(-1);
 
   const active = items.find((a) => a.id === activeId) ?? null;
+
+  useEffect(() => {
+    // Keep UI controls in sync with the currently-active avatar.
+    const v =
+      (active as any)?.voice_config?.voice ||
+      (active as any)?.voice_config?.tts_voice ||
+      "";
+    setTtsVoice(String(v ?? ""));
+  }, [active]);
 
   async function refresh() {
     setStatus("loading");
@@ -65,6 +76,7 @@ export default function AvatarPage() {
         name,
         image_url: imageUrl || undefined,
         persona_prompt: persona || undefined,
+        voice_config: ttsVoice ? { voice: ttsVoice } : undefined,
         set_active: true,
       });
       await refresh();
@@ -131,6 +143,26 @@ export default function AvatarPage() {
       setStatus("error");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function saveVoice() {
+    if (!activeId) {
+      setError("Pick or create an avatar first");
+      setStatus("error");
+      return;
+    }
+    setStatus("loading");
+    setError("");
+    try {
+      await avatarsUpdate(activeId, {
+        voice_config: ttsVoice ? { voice: ttsVoice } : null,
+      });
+      await refresh();
+      setStatus("idle");
+    } catch (e: any) {
+      setError(String(e?.message ?? e ?? "unknown_error"));
+      setStatus("error");
     }
   }
 
@@ -210,6 +242,16 @@ export default function AvatarPage() {
                 rows={6}
               />
             </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "#666" }}>
+                voice (TTS voice id)
+              </span>
+              <input
+                placeholder="e.g. en_US-amy / Samantha / piper:en_US-amy (engine-specific)"
+                value={ttsVoice}
+                onChange={(e: any) => setTtsVoice(e.target.value)}
+              />
+            </label>
             <button
               onClick={() => void create()}
               disabled={status === "loading"}
@@ -228,6 +270,31 @@ export default function AvatarPage() {
             background: "#fafafa",
           }}
         >
+          <div style={{ fontSize: 12, color: "#666" }}>Active voice</div>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "flex-end",
+              marginTop: 10,
+            }}
+          >
+            <label style={{ display: "grid", gap: 6, flex: 1 }}>
+              <span style={{ fontSize: 12, color: "#666" }}>voice</span>
+              <input
+                value={ttsVoice}
+                onChange={(e: any) => setTtsVoice(e.target.value)}
+                placeholder="(optional)"
+              />
+            </label>
+            <button
+              onClick={() => void saveVoice()}
+              disabled={status === "loading" || !activeId}
+            >
+              {status === "loading" ? "Saving..." : "Save voice"}
+            </button>
+          </div>
+
           <div style={{ fontSize: 12, color: "#666" }}>Generate image</div>
           <div
             style={{

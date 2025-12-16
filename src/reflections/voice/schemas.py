@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field  # type: ignore[import-not-found]
 class VoiceHello(BaseModel):
     type: Literal["hello"]
     sample_rate: int | None = None
+    # Optional TTS voice identifier (engine-specific). If omitted, server uses its default.
+    voice: str | None = None
 
 
 class VoiceAudioFrame(BaseModel):
