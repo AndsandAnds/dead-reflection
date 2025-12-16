@@ -2,14 +2,29 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response  # type: ignore[import-not-found]
+from fastapi import (  # type: ignore[import-not-found]
+    APIRouter,
+    Depends,
+    HTTPException,  # type: ignore[import-not-found]
+    Request,
+    Response,
+)
 from fastapi.responses import JSONResponse  # type: ignore[import-not-found]
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 from starlette import status  # type: ignore[import-not-found]
 
-from reflections.auth.depends import current_user_optional, get_auth_service
+from reflections.auth.depends import (
+    current_user_optional,
+    current_user_required,
+    get_auth_service,
+)
 from reflections.auth.exceptions import AuthServiceNotFoundException
-from reflections.auth.schemas import AuthResponse, LoginRequest, SignupRequest, UserPublic
+from reflections.auth.schemas import (
+    AuthResponse,
+    LoginRequest,
+    SignupRequest,
+    UserPublic,
+)
 from reflections.auth.service import AuthService
 from reflections.commons.depends import database_session
 from reflections.core.settings import settings
@@ -68,14 +83,15 @@ async def login(
     session: Annotated[AsyncSession, Depends(database_session)],
     svc: Annotated[AuthService, Depends(get_auth_service)],
 ) -> JSONResponse:
-    # Map invalid creds to 401 (instead of generic 404/400)
+    # Map invalid creds to 401 (instead of generic 404 via BaseServiceNotFoundException).
     try:
         user, token = await svc.login(
             session, email=str(req.email), password=req.password
         )
     except AuthServiceNotFoundException as exc:
-        raise AuthServiceNotFoundException(
-            "unauthorized", exc.details or "Invalid credentials"
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=exc.details or "Invalid credentials",
         ) from exc
 
     data = AuthResponse(
@@ -111,10 +127,8 @@ async def logout(
 
 @router.get("/me", response_model=AuthResponse)
 async def me(
-    user=Depends(current_user_optional),
+    user=Depends(current_user_required),
 ) -> AuthResponse:
-    if not user:
-        raise AuthServiceNotFoundException("unauthorized", "Not logged in")
     return AuthResponse(
         user=UserPublic(
             id=user.id,
@@ -125,5 +139,3 @@ async def me(
             last_login_at=user.last_login_at,
         )
     )
-
-

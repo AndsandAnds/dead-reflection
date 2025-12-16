@@ -27,7 +27,7 @@ def client():
 
 def test_auth_me_unauthorized(client: TestClient) -> None:
     r = client.get("/auth/me")
-    assert r.status_code == 404 or r.status_code == 400  # mapped BaseServiceException
+    assert r.status_code == 401
 
 
 def test_auth_login_sets_cookie_and_me_works(monkeypatch, client: TestClient) -> None:
@@ -68,5 +68,3 @@ def test_auth_login_sets_cookie_and_me_works(monkeypatch, client: TestClient) ->
     assert r2.status_code == 200
     data = r2.json()
     assert data["user"]["email"] == "test@example.com"
-
-

@@ -197,9 +197,9 @@ test-backend: migrate
 	@# Fallback to run --rm when api is not running.
 	@set -e; \
 	if docker compose ps -q api | grep -q .; then \
-	  docker compose exec -T api poetry run pytest -vv -s; \
+	  docker compose exec -T api python -m pytest -vv -s; \
 	else \
-	  docker compose run --rm api poetry run pytest -vv -s; \
+	  docker compose run --rm api python -m pytest -vv -s; \
 	fi
 
 test-frontend:
@@ -213,17 +213,17 @@ test-frontend:
 test-backend-fast: migrate
 	@set -e; \
 	if docker compose ps -q api | grep -q .; then \
-	  docker compose exec -T api poetry run pytest -q; \
+	  docker compose exec -T api python -m pytest -q; \
 	else \
-	  docker compose run --rm api poetry run pytest -q; \
+	  docker compose run --rm api python -m pytest -q; \
 	fi
 
 test-backend-verbose: migrate
 	@set -e; \
 	if docker compose ps -q api | grep -q .; then \
-	  docker compose exec -T api poetry run pytest -vvv -s --tb=long; \
+	  docker compose exec -T api python -m pytest -vvv -s --tb=long; \
 	else \
-	  docker compose run --rm api poetry run pytest -vvv -s --tb=long; \
+	  docker compose run --rm api python -m pytest -vvv -s --tb=long; \
 	fi
 
 test-backend-specific: migrate
@@ -233,9 +233,9 @@ test-backend-specific: migrate
 	  exit 2; \
 	fi; \
 	if docker compose ps -q api | grep -q .; then \
-	  docker compose exec -T api poetry run pytest -k "$(test_name)" -vv -s -ra; \
+	  docker compose exec -T api python -m pytest -k "$(test_name)" -vv -s -ra; \
 	else \
-	  docker compose run --rm api poetry run pytest -k "$(test_name)" -vv -s -ra; \
+	  docker compose run --rm api python -m pytest -k "$(test_name)" -vv -s -ra; \
 	fi
 
 test-frontend-verbose:
@@ -255,10 +255,10 @@ precommit-run:
 
 # Alembic (runs in the API container so it uses the same environment as the app)
 migrate:
-	docker compose run --rm api poetry run alembic upgrade head
+	docker compose run --rm api python -m alembic upgrade head
 
 revision:
-	docker compose run --rm api poetry run alembic revision -m "$(name)"
+	docker compose run --rm api python -m alembic revision -m "$(name)"
 
 stt-bridge:
 	poetry run python -m uvicorn reflections.stt_bridge.main:app --host 0.0.0.0 --port 9001

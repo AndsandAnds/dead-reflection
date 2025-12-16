@@ -9,6 +9,23 @@ function apiBase(): string {
     return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
 
+async function readApiErrorMessage(res: Response): Promise<string> {
+    // Best-effort parse of FastAPI error payloads.
+    try {
+        const data: any = await res.json();
+        const detail =
+            data?.detail ??
+            data?.message ??
+            data?.exception?.details ??
+            data?.exception?.message ??
+            null;
+        if (detail) return String(detail);
+    } catch {
+        // ignore
+    }
+    return res.statusText || "request_failed";
+}
+
 export async function authMe(): Promise<AuthUser | null> {
     try {
         const res = await fetch(`${apiBase()}/auth/me`, { credentials: "include" });
@@ -32,7 +49,10 @@ export async function authLogin(params: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(params),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+        const msg = await readApiErrorMessage(res);
+        throw new Error(`HTTP ${res.status}: ${msg}`);
+    }
     const data = await res.json();
     return data.user;
 }
@@ -48,7 +68,10 @@ export async function authSignup(params: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(params),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+        const msg = await readApiErrorMessage(res);
+        throw new Error(`HTTP ${res.status}: ${msg}`);
+    }
     const data = await res.json();
     return data.user;
 }

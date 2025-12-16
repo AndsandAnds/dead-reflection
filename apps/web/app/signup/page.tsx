@@ -18,6 +18,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
+  const pwTooShort = password.length > 0 && password.length < 8;
 
   useEffect(() => {
     (async () => {
@@ -66,6 +67,11 @@ export default function SignupPage() {
           placeholder="At least 8 characters"
           autoComplete="new-password"
         />
+        {pwTooShort ? (
+          <div style={{ color: "#fecaca", fontSize: 13 }}>
+            Password must be at least 8 characters ({password.length}/8).
+          </div>
+        ) : null}
 
         {error ? (
           <div style={{ color: "#fecaca", fontSize: 13 }}>{error}</div>

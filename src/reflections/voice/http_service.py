@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
@@ -9,6 +10,8 @@ from reflections.avatars.repository import AvatarsRepository
 from reflections.core.settings import settings
 from reflections.voice.http_schemas import GreetResponse, ListVoicesResponse
 from reflections.voice.repository import VoiceRepository
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -61,8 +64,13 @@ class VoiceHttpService:
 
         wav_b64: str | None = None
         if settings.TTS_BASE_URL:
-            wav_bytes = await self.repo.synthesize_tts_wav(text=text, voice=voice)
-            wav_b64 = self.repo.wav_bytes_to_b64(wav_bytes)
+            try:
+                wav_bytes = await self.repo.synthesize_tts_wav(text=text, voice=voice)
+                wav_b64 = self.repo.wav_bytes_to_b64(wav_bytes)
+            except Exception as e:
+                # Degrade gracefully: the greeting text is still valuable even if
+                # the host TTS bridge is down/misconfigured.
+                logger.warning("greet_tts_failed: %s", str(e))
 
         return GreetResponse(text=text, wav_b64=wav_b64, voice=voice)
 
@@ -85,7 +93,7 @@ class VoiceHttpService:
             )
         except Exception:
             # If the bridge doesn't implement /voices yet (or is down), degrade gracefully.
-            return ListVoicesResponse(engine=None, configured=True, voices=[])
+            return ListVoicesResponse(engine=None, configured=False, voices=[])
 
 
 @lru_cache

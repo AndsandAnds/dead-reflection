@@ -59,7 +59,9 @@ export default function LoginPage() {
 
         {error ? (
           <div style={{ color: "#fecaca", fontSize: 13 }}>
-            {error.includes("401") ? "Invalid email or password." : error}
+            {error.includes("401")
+              ? "Invalid email or password. If this is your first time after a reset, create a new account."
+              : error}
           </div>
         ) : null}
 
