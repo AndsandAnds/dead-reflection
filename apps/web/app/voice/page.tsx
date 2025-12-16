@@ -58,6 +58,7 @@ export default function VoicePage() {
   const [greetWavB64, setGreetWavB64] = useState<string>("");
   const [greetNeedsTap, setGreetNeedsTap] = useState<boolean>(false);
   const greetPlayedRef = useRef<boolean>(false);
+  const greetRequestedRef = useRef<boolean>(false);
   const [inputLevel, setInputLevel] = useState<number>(0);
   const [outputLevel, setOutputLevel] = useState<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -107,6 +108,10 @@ export default function VoicePage() {
       // Greeting warmup: generate a short model-authored greeting and (optionally) TTS it
       // so Piper/tts is warmed up before the user starts speaking.
       try {
+        // React StrictMode (dev) can run effects twice; ensure we only greet once.
+        if (greetRequestedRef.current) return;
+        greetRequestedRef.current = true;
+
         setGreetStatus("loading");
         const resp = await fetch(`${apiBase}/voice/greet`, {
           credentials: "include",
@@ -117,10 +122,17 @@ export default function VoicePage() {
         const wav = String(data?.wav_b64 ?? "").trim();
         if (text) {
           setGreetText(text);
-          setMessages((prev: ChatMessage[]) => [
-            ...prev,
-            { role: "assistant", text },
-          ]);
+          setMessages((prev: ChatMessage[]) => {
+            // Dedupe guard in case greet is ever triggered twice.
+            if (
+              prev.length > 0 &&
+              prev[prev.length - 1]?.role === "assistant" &&
+              prev[prev.length - 1]?.text === text
+            ) {
+              return prev;
+            }
+            return [...prev, { role: "assistant", text }];
+          });
         }
         if (wav) setGreetWavB64(wav);
         setGreetStatus("ready");
