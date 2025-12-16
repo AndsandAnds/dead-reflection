@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found
 
 from reflections.avatars.repository import AvatarsRepository
 from reflections.core.settings import settings
-from reflections.voice.http_schemas import GreetResponse
+from reflections.voice.http_schemas import GreetResponse, ListVoicesResponse
 from reflections.voice.repository import VoiceRepository
 
 
@@ -65,6 +65,27 @@ class VoiceHttpService:
             wav_b64 = self.repo.wav_bytes_to_b64(wav_bytes)
 
         return GreetResponse(text=text, wav_b64=wav_b64, voice=voice)
+
+    async def list_voices(self) -> ListVoicesResponse:
+        """
+        List available voices for the current TTS engine (best-effort).
+        """
+        if not settings.TTS_BASE_URL:
+            return ListVoicesResponse(engine=None, configured=False, voices=[])
+        try:
+            data = await self.repo.list_tts_voices()
+            engine = str(data.get("engine") or "") or None
+            voices = data.get("voices")
+            if not isinstance(voices, list):
+                voices = []
+            return ListVoicesResponse(
+                engine=engine,
+                configured=True,
+                voices=[str(v) for v in voices if str(v).strip()],
+            )
+        except Exception:
+            # If the bridge doesn't implement /voices yet (or is down), degrade gracefully.
+            return ListVoicesResponse(engine=None, configured=True, voices=[])
 
 
 @lru_cache

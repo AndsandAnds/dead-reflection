@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
 from reflections.voice import service
-from reflections.voice.http_schemas import GreetResponse
+from reflections.voice.http_schemas import GreetResponse, ListVoicesResponse
 from reflections.voice.http_service import VoiceHttpService, get_voice_http_service
 from reflections.voice.exceptions import VoiceServiceException
 from reflections.auth.depends import current_user_required
@@ -33,3 +33,13 @@ async def greet(
     user=Depends(current_user_required),
 ) -> GreetResponse:
     return await svc.greet(session, user=user)
+
+
+@router.get("/voice/voices", response_model=ListVoicesResponse)
+async def list_voices(
+    svc: Annotated[VoiceHttpService, Depends(get_voice_http_service)],
+    user=Depends(current_user_required),
+) -> ListVoicesResponse:
+    # user is intentionally unused; auth gate only (consistent with the app’s privacy posture).
+    _ = user
+    return await svc.list_voices()

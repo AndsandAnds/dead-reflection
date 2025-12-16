@@ -14,6 +14,7 @@ import {
   avatarsUpdate,
   type Avatar,
 } from "../_lib/avatars";
+import { voiceListVoices } from "../_lib/voices";
 
 export default function AvatarPage() {
   const router = useRouter();
@@ -30,6 +31,8 @@ export default function AvatarPage() {
     "You are Lumina, a friendly and helpful personal assistant."
   );
   const [ttsVoice, setTtsVoice] = useState<string>("");
+  const [voiceOptions, setVoiceOptions] = useState<string[]>([]);
+  const [voicesEngine, setVoicesEngine] = useState<string>("");
 
   const [prompt, setPrompt] = useState<string>(
     "portrait photo of a friendly futuristic assistant, soft studio lighting, high detail, centered, looking at camera"
@@ -176,6 +179,13 @@ export default function AvatarPage() {
         }
         setMe(u);
         await refresh();
+        try {
+          const v = await voiceListVoices();
+          setVoiceOptions(v.voices ?? []);
+          setVoicesEngine(String(v.engine ?? ""));
+        } catch {
+          // ignore (voices list is optional; manual entry still works)
+        }
       } catch {
         setError(
           "API unreachable (failed to fetch /auth/me). Is the API container running?"
@@ -246,8 +256,27 @@ export default function AvatarPage() {
               <span style={{ fontSize: 12, color: "#666" }}>
                 voice (TTS voice id)
               </span>
+              {voiceOptions.length > 0 ? (
+                <select
+                  value={ttsVoice}
+                  onChange={(e: any) =>
+                    setTtsVoice(String(e.target.value ?? ""))
+                  }
+                >
+                  <option value="">(default)</option>
+                  {voiceOptions.map((v: string) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <input
-                placeholder="e.g. en_US-amy / Samantha / piper:en_US-amy (engine-specific)"
+                placeholder={
+                  voicesEngine
+                    ? `e.g. ${voicesEngine}: <voice id>`
+                    : "e.g. en_US-lessac-medium / Samantha / 0 (speaker id)"
+                }
                 value={ttsVoice}
                 onChange={(e: any) => setTtsVoice(e.target.value)}
               />
@@ -281,6 +310,21 @@ export default function AvatarPage() {
           >
             <label style={{ display: "grid", gap: 6, flex: 1 }}>
               <span style={{ fontSize: 12, color: "#666" }}>voice</span>
+              {voiceOptions.length > 0 ? (
+                <select
+                  value={ttsVoice}
+                  onChange={(e: any) =>
+                    setTtsVoice(String(e.target.value ?? ""))
+                  }
+                >
+                  <option value="">(default)</option>
+                  {voiceOptions.map((v: string) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <input
                 value={ttsVoice}
                 onChange={(e: any) => setTtsVoice(e.target.value)}

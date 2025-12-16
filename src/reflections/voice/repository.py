@@ -195,6 +195,24 @@ class VoiceRepository:
             resp.raise_for_status()
             return bytes(resp.content)
 
+    async def list_tts_voices(self) -> dict:
+        """
+        List available voices from the host TTS bridge (best-effort).
+
+        No error handling here (repository rule); service decides fallbacks.
+        """
+        if not settings.TTS_BASE_URL:
+            raise RuntimeError("TTS_BASE_URL is not configured")
+        timeout_s = float(min(2.0, max(0.2, float(settings.TTS_TIMEOUT_S))))
+        timeout = httpx.Timeout(timeout_s, connect=min(0.25, timeout_s))
+        async with httpx.AsyncClient(base_url=settings.TTS_BASE_URL, timeout=timeout) as client:
+            resp = await client.get("/voices")
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, dict):
+                return {"engine": None, "voices": []}
+            return data
+
     @staticmethod
     def wav_bytes_to_b64(wav_bytes: bytes) -> str:
         return base64.b64encode(wav_bytes).decode("ascii")

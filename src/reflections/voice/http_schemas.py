@@ -9,3 +9,9 @@ class GreetResponse(BaseModel):
     voice: str | None = None
 
 
+class ListVoicesResponse(BaseModel):
+    engine: str | None = None
+    configured: bool = False
+    voices: list[str] = Field(default_factory=list)
+
+
