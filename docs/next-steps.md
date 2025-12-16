@@ -31,6 +31,10 @@ This is the punch list of what we still need to implement after getting:
 - **Voice selection**
   - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
   - ✅ Persist per-avatar voice config in DB + UI, and have `/voice` use the active avatar voice automatically
+  - ⏳ Selectable voices:
+    - Add an API endpoint to list available voices (e.g. Piper voices discovered from `piper-models/`)
+    - UI: dropdown selector on `/avatar` (per-avatar) and/or quick switch on `/voice`
+    - Persist selection in `avatars.voice_config` (already in place) and apply immediately on next turn
 
 ## P0 — Auth + user identity (signup/login/logout)
 - **Users in Postgres**
@@ -50,6 +54,10 @@ This is the punch list of what we still need to implement after getting:
     - Removed `DEFAULT_USER_ID`/`DEFAULT_AVATAR_ID` + `NEXT_PUBLIC_*` env vars
     - UI/WS now derive identity from `/auth/me` + `/avatars` (no hard-coded UUIDs)
   - ✅ Ensure backend tests run `make migrate` before pytest
+  - ⏳ Initial assistant greeting after login (warmup):
+    - Purpose: “warm” Piper/tts path to reduce first-response latency and improve flow
+    - UI: show a short welcome message in `/voice` (and optionally play it via TTS)
+    - Backend: optional `/voice/warmup` or WS `warmup` message to pre-initialize TTS bridge
 
 ## P1 — Conversation + memory integration
 - **Persist conversations**
@@ -58,6 +66,10 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Wire voice WS to write each finalized turn (user transcript + assistant reply) to the DB (best-effort; never breaks voice loop)
   - ✅ Minimal API: list recent conversations + fetch a conversation (debug/inspect)
   - ⏳ Replay context into the voice session on reconnect (load recent turns into `state.messages` on WS connect / new turn)
+  - ⏳ Daily objective + date-based recall:
+    - Add a lightweight “daily objective” prompt injection (by date) and store it as a memory card + raw chunk
+    - Ensure retrieval can filter/boost by date (e.g. “today”, “yesterday”, specific date)
+    - UX: expose a “Today’s objective” field + quick recall by date in the Memory UI
 - **Memory write policy**
   - ✅ Automatically ingest episodic memory from voice transcripts
   - (Decision) No sensitive-info filter required for local-only operation
@@ -74,6 +86,10 @@ This is the punch list of what we still need to implement after getting:
 - **Prompting**
   - System prompt templates (persona + style + safety)
   - Tool routing via PydanticAI
+  - ⏳ Domain expertise / knowledge:
+    - Define what “domain pack” means (prompt-only, RAG-only, fine-tune/LoRA, or hybrid)
+    - Implement a “domain pack” pipeline: curated docs → chunk → embed → pgvector → retrieval in prompts
+    - Document retraining path (LoRA vs full fine-tune) and local infra expectations
 - **“Lumina” assistant identity**
   - ✅ Add a default assistant persona called **Lumina** (personal assistant) via system prompt + UI copy
   - Later: fine-tune/LoRA the `llama3.2` base into a “Lumina” checkpoint once we migrate to **vLLM**
@@ -92,6 +108,11 @@ This is the punch list of what we still need to implement after getting:
 - **Performance instrumentation**
   - Log timing: capture duration → STT latency → LLM latency → TTS latency
   - ✅ Emit per-turn timing summary to logs (and optionally as a WS debug message behind a flag)
+ - **Test coverage**
+  - ⏳ Ensure full test coverage for FE + BE:
+    - BE: add tests for conversations persistence paths + health checks + voice error codes
+    - FE: add tests for auth gating + avatar voice selection + greeting flow + conversations UI (when added)
+    - Add a coverage target (e.g. `make coverage`) and enforce in CI (or at least in precommit)
 
 ## P1 — Voice auth + per-user memory (critical follow-up)
 - **Authenticate /ws/voice**
@@ -130,5 +151,17 @@ This is the punch list of what we still need to implement after getting:
   - For best echo handling, lower latency media transport
 - **vLLM migration**
   - Abstract model provider and enable fine-tuned variants later
+ - **Postgres extensions/plugins**
+  - ⏳ Evaluate Postgres extensions that help local RAG + analytics (within privacy constraints):
+    - `pg_stat_statements` for query insights (local-only)
+    - `pg_trgm` for fuzzy keyword search on logs/memories
+    - pgvector tuning (HNSW params, `vector_ip_ops`, maintenance)
+    - Consider time-series friendly indexing/partitioning for conversations/turns
+
+## Now / Next (re-prioritized)
+- **P0 (next)**: Greeting warmup + selectable voices (high UX impact, low risk)
+- **P1 (next)**: Daily objective + date-based recall and conversation replay on reconnect
+- **P1 (after)**: Domain expertise via “domain packs” (RAG first; LoRA later)
+- **P2 (later)**: Postgres extensions/plugins exploration + hardening test coverage enforcement/CI
 
 
