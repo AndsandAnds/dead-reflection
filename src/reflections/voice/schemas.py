@@ -82,3 +82,6 @@ class ServerDone(BaseModel):
 class ServerError(BaseModel):
     type: Literal["error"] = "error"
     message: str
+    # Backwards-compatible structured error fields for UI and tooling.
+    code: str | None = None
+    details: dict | None = None

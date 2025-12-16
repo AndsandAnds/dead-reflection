@@ -9,5 +9,5 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    return HealthResponse(**service.get_health_payload())
+async def health() -> HealthResponse:
+    return HealthResponse(**(await service.get_health_payload()))

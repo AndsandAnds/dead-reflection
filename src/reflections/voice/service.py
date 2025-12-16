@@ -279,7 +279,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
             if not pcm:
                 state.finalizing = False
-                await send(ServerError(message="no_audio"))
+                await send(ServerError(message="no_audio", code="no_audio"))
                 await send(build_done_message())
                 return
 
@@ -295,6 +295,11 @@ async def run_voice_session(websocket: WebSocket) -> None:
             )
 
     async def process_turn(*, pcm_snapshot: bytes, sample_rate: int) -> None:
+        t0 = time.monotonic()
+        stt_s: float | None = None
+        llm_s: float | None = None
+        tts_s: float = 0.0
+        tts_chunks: int = 0
         bytes_received = len(pcm_snapshot)
         duration_s = bytes_received / max(1.0, float(sample_rate) * 2.0)
 
@@ -304,9 +309,11 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 f"(stub) user spoke for ~{duration_s:.2f}s ({bytes_received} bytes)"
             )
             if settings.STT_BASE_URL:
+                stt0 = time.monotonic()
                 transcript = await repo.transcribe_audio(
                     sample_rate=sample_rate, pcm16le=pcm_snapshot
                 )
+                stt_s = time.monotonic() - stt0
             await send(
                 build_final_transcript_message(
                     text=transcript,
@@ -325,14 +332,18 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
             async def tts_consumer() -> None:
                 nonlocal tts_seq
+                nonlocal tts_s, tts_chunks
                 assert tts_q is not None
                 while True:
                     item = await tts_q.get()
                     if item is None:
                         return
+                    tts0 = time.monotonic()
                     wav_bytes = await repo.synthesize_tts_wav(
                         text=item, voice=state.tts_voice
                     )
+                    tts_s += time.monotonic() - tts0
+                    tts_chunks += 1
                     await send(
                         ServerTtsChunk(
                             seq=tts_seq,
@@ -346,6 +357,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 tts_q = asyncio.Queue()
                 tts_task = asyncio.create_task(tts_consumer())
 
+            llm0 = time.monotonic()
             try:
                 async for delta in repo.stream_assistant_reply_chat(
                     messages=state.messages
@@ -359,8 +371,16 @@ async def run_voice_session(websocket: WebSocket) -> None:
                         for chunk in ready:
                             await tts_q.put(chunk)
             except Exception as exc:
-                await send(ServerError(message=f"ollama_error:{exc!s}"))
+                await send(
+                    ServerError(
+                        message=f"ollama_error:{exc!s}",
+                        code="ollama_error",
+                        details={"error": str(exc)},
+                    )
+                )
                 assistant_text = "(stub) (ollama unavailable) I heard you."
+            finally:
+                llm_s = time.monotonic() - llm0
 
             # Flush remaining TTS buffer (if any).
             if settings.TTS_BASE_URL and tts_q is not None:
@@ -428,10 +448,27 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     await tts_task
             raise
         except Exception as exc:
-            await send(ServerError(message=f"turn_error:{exc!s}"))
+            await send(
+                ServerError(
+                    message=f"turn_error:{exc!s}",
+                    code="turn_error",
+                    details={"error": str(exc)},
+                )
+            )
             await send(build_done_message())
         finally:
             state.finalizing = False
+            total_s = time.monotonic() - t0
+            logger.info(
+                "voice_turn_timing: total=%.3fs stt=%s llm=%.3fs tts=%.3fs tts_chunks=%d bytes=%d dur=%.2fs",
+                total_s,
+                f"{stt_s:.3f}s" if stt_s is not None else "n/a",
+                float(llm_s or 0.0),
+                float(tts_s),
+                int(tts_chunks),
+                int(bytes_received),
+                float(duration_s),
+            )
 
     async def sender_loop() -> None:
         last_sent = 0
@@ -551,7 +588,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
             except WebSocketDisconnect:
                 break
             except Exception:
-                await send(ServerError(message="invalid_message"))
+                await send(ServerError(message="invalid_message", code="invalid_message"))
                 continue
 
             if isinstance(event, dict) and event.get("bytes") is not None:
@@ -584,13 +621,13 @@ async def run_voice_session(websocket: WebSocket) -> None:
             try:
                 payload = json.loads(str(raw_text))
             except Exception:
-                await send(ServerError(message="invalid_json"))
+                await send(ServerError(message="invalid_json", code="invalid_json"))
                 continue
 
             try:
                 parsed = parse_client_message(payload)
             except Exception:
-                await send(ServerError(message="invalid_message"))
+                await send(ServerError(message="invalid_message", code="invalid_message"))
                 continue
 
             if parsed.type == "cancel":
