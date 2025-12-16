@@ -16,6 +16,7 @@ from reflections.commons.logging import logger
 from reflections.auth.service import AuthService
 from reflections.core.db import database_manager
 from reflections.core.settings import settings
+from reflections.conversations.service import get_conversations_service
 from reflections.memory.schemas import Turn
 from reflections.memory.service import MemoryService
 from reflections.voice.exceptions import VoiceServiceException
@@ -42,6 +43,8 @@ class VoiceSessionState:
     finalizing: bool = False
     sample_rate: int = 16000
     user_id: Any | None = None
+    avatar_id: Any | None = None
+    conversation_id: Any | None = None
     tts_voice: str | None = None
     messages: list[dict[str, str]] = field(default_factory=list)
     latest_partial_text: str = ""
@@ -229,6 +232,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 )
             if user is not None:
                 state.user_id = user.id
+                state.avatar_id = getattr(user, "active_avatar_id", None)
         except Exception as exc:
             logger.info("ws_auth_failed: %s", exc)
 
@@ -370,6 +374,22 @@ async def run_voice_session(websocket: WebSocket) -> None:
             reply = assistant_text.strip()
             await send(build_assistant_message(text=reply))
             state.messages.append({"role": "assistant", "content": reply})
+
+            # Persist conversation turns (local DB). Keep this best-effort: never fail the voice loop.
+            if state.user_id is not None:
+                try:
+                    async with database_manager.session() as session:
+                        cid = await get_conversations_service().ensure_and_append_turn_pair(
+                            session,
+                            user_id=state.user_id,
+                            avatar_id=state.avatar_id,
+                            conversation_id=state.conversation_id,
+                            user_text=transcript,
+                            assistant_text=reply,
+                        )
+                        state.conversation_id = cid
+                except Exception as exc:
+                    logger.info("conversation_persist_failed: %s", exc)
 
             # Automatic episodic memory ingest (opt-in/offline by default).
             if settings.MEMORY_AUTO_INGEST:
