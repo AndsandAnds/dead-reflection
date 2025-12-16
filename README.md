@@ -180,6 +180,7 @@ Voice list + download links:
 ```bash
 export TTS_ENGINE=piper
 export PIPER_MODEL="$HOME/piper-models/en_US-lessac-medium.onnx"
+export PIPER_MODELS_DIR="$HOME/piper-models"
 export PIPER_BIN=piper          # optional if it's on PATH
 export PIPER_SPEAKER=0          # optional (multi-speaker models)
 make tts-bridge

@@ -71,6 +71,7 @@ check-tts-piper:
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 	bin="$${PIPER_BIN:-piper}"; \
 	model="$${PIPER_MODEL:-}"; \
+	models_dir="$${PIPER_MODELS_DIR:-}"; \
 	if ! command -v "$$bin" >/dev/null 2>&1; then \
 	  echo "ERROR: TTS_ENGINE=piper but '$$bin' is not installed / not on PATH."; \
 	  echo "Install Piper CLI (recommended):"; \
@@ -79,11 +80,20 @@ check-tts-piper:
 	  echo "  pipx install --python /opt/homebrew/opt/python@3.13/libexec/bin/python piper-tts"; \
 	  exit 2; \
 	fi; \
-	if [ -z "$$model" ] || [ ! -f "$$model" ]; then \
-	  echo "ERROR: TTS_ENGINE=piper but PIPER_MODEL is not set or does not exist: '$$model'"; \
-	  echo "Set it to a local .onnx voice model path (and keep the matching .onnx.json nearby)."; \
-	  exit 2; \
-	fi
+	if [ -n "$$models_dir" ] && [ -d "$$models_dir" ]; then \
+	  if ls "$$models_dir"/*.onnx >/dev/null 2>&1; then \
+	    exit 0; \
+	  fi; \
+	fi; \
+	if [ -n "$$model" ] && [ -f "$$model" ]; then \
+	  exit 0; \
+	fi; \
+	echo "ERROR: TTS_ENGINE=piper but neither PIPER_MODEL nor PIPER_MODELS_DIR are valid."; \
+	echo "Set ONE of:"; \
+	echo "  - PIPER_MODEL=<absolute path to a .onnx model>"; \
+	echo "  - PIPER_MODELS_DIR=<directory containing multiple .onnx models>"; \
+	echo "Also keep the matching .onnx.json next to each .onnx file."; \
+	exit 2
 
 check-stt-whisper:
 	@set -e; \
