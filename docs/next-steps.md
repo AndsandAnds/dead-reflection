@@ -31,10 +31,11 @@ This is the punch list of what we still need to implement after getting:
 - **Voice selection**
   - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
   - ✅ Persist per-avatar voice config in DB + UI, and have `/voice` use the active avatar voice automatically
-  - ⏳ Selectable voices:
-    - Add an API endpoint to list available voices (e.g. Piper voices discovered from `piper-models/`)
-    - UI: dropdown selector on `/avatar` (per-avatar) and/or quick switch on `/voice`
-    - Persist selection in `avatars.voice_config` (already in place) and apply immediately on next turn
+  - ✅ Selectable voices:
+    - ✅ Host TTS bridge supports `GET /voices` + model switching via `voice` (Piper `.onnx` by id/path)
+    - ✅ API exposes `GET /voice/voices` (auth-gated) for the UI
+    - ✅ UI: dropdown selector on `/avatar` (per-avatar) with manual override fallback
+    - ✅ Persist selection in `avatars.voice_config` and apply on next turn (and for greeting warmup)
 
 ## P0 — Auth + user identity (signup/login/logout)
 - **Users in Postgres**
@@ -54,10 +55,10 @@ This is the punch list of what we still need to implement after getting:
     - Removed `DEFAULT_USER_ID`/`DEFAULT_AVATAR_ID` + `NEXT_PUBLIC_*` env vars
     - UI/WS now derive identity from `/auth/me` + `/avatars` (no hard-coded UUIDs)
   - ✅ Ensure backend tests run `make migrate` before pytest
-  - ⏳ Initial assistant greeting after login (warmup):
-    - Purpose: “warm” Piper/tts path to reduce first-response latency and improve flow
-    - UI: show a short welcome message in `/voice` (and optionally play it via TTS)
-    - Backend: optional `/voice/warmup` or WS `warmup` message to pre-initialize TTS bridge
+  - ✅ Initial assistant greeting after login (warmup):
+    - Purpose: “warm” Ollama + Piper/TTS to reduce first-response latency and improve flow
+    - Backend: `GET /voice/greet` generates a short model-authored greeting (includes user name) and returns optional `wav_b64`
+    - UI: `/voice` requests greeting on load, displays it, and plays audio (with a “Tap to play” fallback if autoplay is blocked)
 
 ## P1 — Conversation + memory integration
 - **Persist conversations**
@@ -65,7 +66,9 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Add `conversations` + `conversation_turns` tables
   - ✅ Wire voice WS to write each finalized turn (user transcript + assistant reply) to the DB (best-effort; never breaks voice loop)
   - ✅ Minimal API: list recent conversations + fetch a conversation (debug/inspect)
-  - ⏳ Replay context into the voice session on reconnect (load recent turns into `state.messages` on WS connect / new turn)
+  - ✅ Replay context into the voice session on reconnect:
+    - On authenticated WS connect, load the latest conversation tail (bounded window) and seed `state.messages`
+    - Scalability: fetches 1 conversation + last N turns (does not scan all history)
   - ⏳ Daily objective + date-based recall:
     - Add a lightweight “daily objective” prompt injection (by date) and store it as a memory card + raw chunk
     - Ensure retrieval can filter/boost by date (e.g. “today”, “yesterday”, specific date)
@@ -159,8 +162,9 @@ This is the punch list of what we still need to implement after getting:
     - Consider time-series friendly indexing/partitioning for conversations/turns
 
 ## Now / Next (re-prioritized)
-- **P0 (next)**: Greeting warmup + selectable voices (high UX impact, low risk)
-- **P1 (next)**: Daily objective + date-based recall and conversation replay on reconnect
+- **P0 (done)**: Greeting warmup + selectable voices (high UX impact, low risk)
+- **P1 (next)**: Daily objective + date-based recall
+- **P1 (next)**: Voice session expiry semantics (cookie expiry mid-stream behavior)
 - **P1 (after)**: Domain expertise via “domain packs” (RAG first; LoRA later)
 - **P2 (later)**: Postgres extensions/plugins exploration + hardening test coverage enforcement/CI
 
