@@ -78,6 +78,39 @@ class ConversationsService:
         )
         return cid
 
+    async def load_recent_context(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        avatar_id: UUID | None,
+        limit_turns: int = 40,
+    ) -> tuple[UUID | None, list[dict[str, str]]]:
+        """
+        Load a small tail window of the latest conversation and return it as LLM
+        chat messages (role/content).
+
+        Scalability: this never scans thousands of conversations; it fetches the
+        single most-recent conversation and at most `limit_turns` rows.
+        """
+        c = await self.repo.latest_for_user(session, user_id=user_id, avatar_id=avatar_id)
+        if c is None:
+            return None, []
+        turns = await self.repo.list_turns_tail(
+            session, conversation_id=c.id, limit=limit_turns
+        )
+        msgs: list[dict[str, str]] = []
+        for t in turns:
+            role = str(t.role or "").strip() or "user"
+            content = str(t.content or "").strip()
+            if not content:
+                continue
+            # Only allow known roles (Ollama expects user|assistant|system).
+            if role not in ("user", "assistant", "system"):
+                role = "user"
+            msgs.append({"role": role, "content": content})
+        return c.id, msgs
+
 
 @lru_cache
 def get_conversations_service() -> ConversationsService:

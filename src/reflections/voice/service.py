@@ -230,9 +230,23 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 user = await AuthService.create().get_user_for_session_token(
                     session, token=token
                 )
-            if user is not None:
-                state.user_id = user.id
-                state.avatar_id = getattr(user, "active_avatar_id", None)
+                if user is not None:
+                    state.user_id = user.id
+                    state.avatar_id = getattr(user, "active_avatar_id", None)
+                    # Replay: seed recent conversation context for continuity after reconnect.
+                    try:
+                        cid, msgs = await get_conversations_service().load_recent_context(
+                            session,
+                            user_id=state.user_id,
+                            avatar_id=state.avatar_id,
+                            limit_turns=40,
+                        )
+                        if cid is not None:
+                            state.conversation_id = cid
+                        if msgs:
+                            state.messages.extend(msgs)
+                    except Exception as exc:
+                        logger.info("conversation_replay_failed: %s", exc)
         except Exception as exc:
             logger.info("ws_auth_failed: %s", exc)
 

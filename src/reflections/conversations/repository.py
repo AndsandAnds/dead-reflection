@@ -37,6 +37,16 @@ class ConversationsRepository:
         res = await session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def latest_for_user(
+        self, session: AsyncSession, *, user_id: UUID, avatar_id: UUID | None
+    ) -> Conversation | None:
+        stmt = sa.select(Conversation).where(Conversation.user_id == user_id)
+        if avatar_id is not None:
+            stmt = stmt.where(Conversation.avatar_id == avatar_id)
+        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.created_at.desc()).limit(1)
+        res = await session.execute(stmt)
+        return res.scalar_one_or_none()
+
     async def list_turns(
         self, session: AsyncSession, *, conversation_id: UUID
     ) -> list[ConversationTurn]:
@@ -47,6 +57,26 @@ class ConversationsRepository:
         )
         res = await session.execute(stmt)
         return list(res.scalars().all())
+
+    async def list_turns_tail(
+        self, session: AsyncSession, *, conversation_id: UUID, limit: int
+    ) -> list[ConversationTurn]:
+        """
+        Fetch the last N turns for a conversation, returned in ascending seq order.
+        """
+        lim = max(0, int(limit))
+        if lim <= 0:
+            return []
+        stmt = (
+            sa.select(ConversationTurn)
+            .where(ConversationTurn.conversation_id == conversation_id)
+            .order_by(ConversationTurn.seq.desc())
+            .limit(lim)
+        )
+        res = await session.execute(stmt)
+        rows = list(res.scalars().all())
+        rows.reverse()
+        return rows
 
     async def create_conversation(
         self,
