@@ -33,6 +33,8 @@ export default function AvatarPage() {
   const [ttsVoice, setTtsVoice] = useState<string>("");
   const [voiceOptions, setVoiceOptions] = useState<string[]>([]);
   const [voicesEngine, setVoicesEngine] = useState<string>("");
+  const [voicesConfigured, setVoicesConfigured] = useState<boolean>(false);
+  const [voicesLoadError, setVoicesLoadError] = useState<string>("");
 
   const [prompt, setPrompt] = useState<string>(
     "portrait photo of a friendly futuristic assistant, soft studio lighting, high detail, centered, looking at camera"
@@ -68,6 +70,21 @@ export default function AvatarPage() {
     } catch (e: any) {
       setError(String(e?.message ?? e ?? "unknown_error"));
       setStatus("error");
+    }
+  }
+
+  async function refreshVoices() {
+    setVoicesLoadError("");
+    try {
+      const v = await voiceListVoices();
+      setVoiceOptions(v.voices ?? []);
+      setVoicesEngine(String(v.engine ?? ""));
+      setVoicesConfigured(Boolean(v.configured));
+    } catch (e: any) {
+      setVoiceOptions([]);
+      setVoicesEngine("");
+      setVoicesConfigured(false);
+      setVoicesLoadError(String(e?.message ?? e ?? "failed_to_load_voices"));
     }
   }
 
@@ -180,9 +197,7 @@ export default function AvatarPage() {
         setMe(u);
         await refresh();
         try {
-          const v = await voiceListVoices();
-          setVoiceOptions(v.voices ?? []);
-          setVoicesEngine(String(v.engine ?? ""));
+          await refreshVoices();
         } catch {
           // ignore (voices list is optional; manual entry still works)
         }
@@ -256,21 +271,41 @@ export default function AvatarPage() {
               <span style={{ fontSize: 12, color: "#666" }}>
                 voice (TTS voice id)
               </span>
-              {voiceOptions.length > 0 ? (
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <select
                   value={ttsVoice}
                   onChange={(e: any) =>
                     setTtsVoice(String(e.target.value ?? ""))
                   }
+                  disabled={voiceOptions.length === 0}
+                  style={{ flex: 1 }}
                 >
                   <option value="">(default)</option>
+                  {voiceOptions.length === 0 ? (
+                    <option value="" disabled>
+                      (no voices found)
+                    </option>
+                  ) : null}
                   {voiceOptions.map((v: string) => (
                     <option key={v} value={v}>
                       {v}
                     </option>
                   ))}
                 </select>
-              ) : null}
+                <button
+                  type="button"
+                  onClick={() => void refreshVoices()}
+                  disabled={status === "loading"}
+                >
+                  Refresh voices
+                </button>
+              </div>
+              <div style={{ fontSize: 12, color: "#666" }}>
+                voices: {voiceOptions.length}{" "}
+                {voicesEngine ? `• engine: ${voicesEngine}` : ""} •
+                tts_configured: {voicesConfigured ? "yes" : "no"}
+                {voicesLoadError ? ` • error: ${voicesLoadError}` : ""}
+              </div>
               <input
                 placeholder={
                   voicesEngine
@@ -310,21 +345,23 @@ export default function AvatarPage() {
           >
             <label style={{ display: "grid", gap: 6, flex: 1 }}>
               <span style={{ fontSize: 12, color: "#666" }}>voice</span>
-              {voiceOptions.length > 0 ? (
-                <select
-                  value={ttsVoice}
-                  onChange={(e: any) =>
-                    setTtsVoice(String(e.target.value ?? ""))
-                  }
-                >
-                  <option value="">(default)</option>
-                  {voiceOptions.map((v: string) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
+              <select
+                value={ttsVoice}
+                onChange={(e: any) => setTtsVoice(String(e.target.value ?? ""))}
+                disabled={voiceOptions.length === 0}
+              >
+                <option value="">(default)</option>
+                {voiceOptions.length === 0 ? (
+                  <option value="" disabled>
+                    (no voices found)
+                  </option>
+                ) : null}
+                {voiceOptions.map((v: string) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
               <input
                 value={ttsVoice}
                 onChange={(e: any) => setTtsVoice(e.target.value)}
