@@ -215,8 +215,10 @@ def test_voice_ws_auto_ingests_memory_when_enabled(
     monkeypatch.setattr(voice_service, "get_memory_service", lambda: FakeMemSvc())
 
     # Pretend the WS is authenticated (so memory auto-ingest has a user_id).
+    from uuid import UUID
+
     class FakeUser:
-        id = voice_service.settings.DEFAULT_USER_ID
+        id = UUID("11111111-1111-1111-1111-111111111111")
 
     class FakeAuthSvc:
         async def get_user_for_session_token(self, session, *, token):  # type: ignore[no-untyped-def]

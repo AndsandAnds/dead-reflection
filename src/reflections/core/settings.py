@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from uuid import UUID
-
 from pydantic_settings import (  # type: ignore[import-not-found]
     BaseSettings,
     SettingsConfigDict,
@@ -63,10 +61,6 @@ class Settings(BaseSettings):
     DIFFUSERS_DTYPE: str = "float32"  # float16|float32
     DIFFUSERS_HIGH_NOISE_FRAC: float = 0.8
     DIFFUSERS_ENABLE_COMPILE: bool = False
-
-    # Identity defaults (until the user/avatar system is fully implemented)
-    DEFAULT_USER_ID: UUID = UUID("00000000-0000-0000-0000-000000000001")
-    DEFAULT_AVATAR_ID: UUID | None = UUID("00000000-0000-0000-0000-000000000002")
 
     # Memory integration
     MEMORY_AUTO_INGEST: bool = True

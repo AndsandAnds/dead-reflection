@@ -22,16 +22,8 @@ export default function MemoryPage() {
     process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
   const [me, setMe] = useState<AuthUser | null>(null);
-
-  const defaultUserId =
-    process.env.NEXT_PUBLIC_DEFAULT_USER_ID ??
-    "00000000-0000-0000-0000-000000000001";
-  const defaultAvatarId =
-    process.env.NEXT_PUBLIC_DEFAULT_AVATAR_ID ??
-    "00000000-0000-0000-0000-000000000002";
-
-  const [userId, setUserId] = useState<string>(defaultUserId);
-  const [avatarId, setAvatarId] = useState<string>(defaultAvatarId);
+  const [userId, setUserId] = useState<string>("");
+  const [avatarId, setAvatarId] = useState<string>("");
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<
@@ -104,7 +96,9 @@ export default function MemoryPage() {
       }
       setMe(u);
       setUserId(u.id);
-      await refresh({ userId: u.id });
+      const aid = (u as any)?.active_avatar_id ?? "";
+      setAvatarId(aid);
+      await refresh({ userId: u.id, avatarId: aid });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -129,9 +123,12 @@ export default function MemoryPage() {
             />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 12, color: "#666" }}>avatar_id</span>
+            <span style={{ fontSize: 12, color: "#666" }}>
+              avatar_id (active)
+            </span>
             <input
               value={avatarId}
+              readOnly
               onChange={(e: any) => setAvatarId(e.target.value)}
               style={{ width: 360 }}
             />
@@ -189,7 +186,7 @@ export default function MemoryPage() {
                       type="checkbox"
                       checked={Boolean(selected[it.id])}
                       onChange={(e: any) =>
-                        setSelected((prev) => ({
+                        setSelected((prev: Record<string, boolean>) => ({
                           ...prev,
                           [it.id]: e.target.checked,
                         }))
