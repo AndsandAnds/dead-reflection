@@ -5,7 +5,7 @@
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
-.PHONY: bridges-preflight check-tts-piper check-stt-whisper
+.PHONY: bridges-preflight bridges-verify-running check-bridge-python check-tts-piper check-stt-whisper
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -53,18 +53,44 @@ down:
 	docker compose down
 
 bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg
+	@sleep 0.2
+	@$(MAKE) bridges-verify-running
 	@echo "Host bridges: up"
 
 bridges-preflight:
 	@# Validate host dependencies for bridges. Reads from .env if present.
 	@set -e; \
 	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	$(MAKE) check-bridge-python; \
 	if [ -n "$${STT_BASE_URL:-}" ]; then \
 	  $(MAKE) check-stt-whisper; \
 	fi; \
 	if [ "$${TTS_ENGINE:-say}" = "piper" ]; then \
 	  $(MAKE) check-tts-piper; \
 	fi
+
+check-bridge-python:
+	@# Host bridges are started via Poetry; ensure deps are installed locally.
+	@set -e; \
+	if ! poetry run python -c 'import uvicorn' >/dev/null 2>&1; then \
+	  echo "ERROR: Host bridges require Python deps (uvicorn) in your local Poetry environment."; \
+	  echo "Run:"; \
+	  echo "  poetry install"; \
+	  echo "If you have a broken venv, reset it:"; \
+	  echo "  rm -rf .venv && poetry install"; \
+	  exit 2; \
+	fi
+
+bridges-verify-running:
+	@set -e; \
+	bad=0; \
+	if [ -f "$(STT_PID)" ]; then \
+	  if ! kill -0 "$$(cat "$(STT_PID)")" 2>/dev/null; then bad=1; echo "stt-bridge failed to start. See $(STT_LOG)"; fi; \
+	fi; \
+	if [ -f "$(TTS_PID)" ]; then \
+	  if ! kill -0 "$$(cat "$(TTS_PID)")" 2>/dev/null; then bad=1; echo "tts-bridge failed to start. See $(TTS_LOG)"; fi; \
+	fi; \
+	if [ "$$bad" -ne 0 ]; then exit 2; fi
 
 check-tts-piper:
 	@set -e; \
@@ -249,6 +275,11 @@ stt-bridge-bg:
 	  rm -f "$(STT_PID)"; \
 	  echo "Starting stt-bridge in background (logs: $(STT_LOG))"; \
 	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) stt-bridge' >"$(STT_LOG)" 2>&1 & echo $$! >"$(STT_PID)"; \
+	  sleep 0.2; \
+	  if ! kill -0 "$$(cat "$(STT_PID)")" 2>/dev/null; then \
+	    echo "ERROR: stt-bridge failed to start. See $(STT_LOG)"; \
+	    exit 2; \
+	  fi; \
 	fi
 
 tts-bridge-bg:
@@ -260,6 +291,11 @@ tts-bridge-bg:
 	  rm -f "$(TTS_PID)"; \
 	  echo "Starting tts-bridge in background (logs: $(TTS_LOG))"; \
 	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) tts-bridge' >"$(TTS_LOG)" 2>&1 & echo $$! >"$(TTS_PID)"; \
+	  sleep 0.2; \
+	  if ! kill -0 "$$(cat "$(TTS_PID)")" 2>/dev/null; then \
+	    echo "ERROR: tts-bridge failed to start. See $(TTS_LOG)"; \
+	    exit 2; \
+	  fi; \
 	fi
 
 # ---------------------------------------------------------------------------
