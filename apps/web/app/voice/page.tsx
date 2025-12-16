@@ -51,6 +51,13 @@ export default function VoicePage() {
   const [activeAvatar, setActiveAvatar] = useState<Avatar | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [greetStatus, setGreetStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [greetText, setGreetText] = useState<string>("");
+  const [greetWavB64, setGreetWavB64] = useState<string>("");
+  const [greetNeedsTap, setGreetNeedsTap] = useState<boolean>(false);
+  const greetPlayedRef = useRef<boolean>(false);
   const [inputLevel, setInputLevel] = useState<number>(0);
   const [outputLevel, setOutputLevel] = useState<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -95,6 +102,46 @@ export default function VoicePage() {
         setActiveAvatar(active);
       } catch {
         // ignore (avatars are optional)
+      }
+
+      // Greeting warmup: generate a short model-authored greeting and (optionally) TTS it
+      // so Piper/tts is warmed up before the user starts speaking.
+      try {
+        setGreetStatus("loading");
+        const resp = await fetch(`${apiBase}/voice/greet`, {
+          credentials: "include",
+        } as any);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const text = String(data?.text ?? "").trim();
+        const wav = String(data?.wav_b64 ?? "").trim();
+        if (text) {
+          setGreetText(text);
+          setMessages((prev: ChatMessage[]) => [
+            ...prev,
+            { role: "assistant", text },
+          ]);
+        }
+        if (wav) setGreetWavB64(wav);
+        setGreetStatus("ready");
+
+        // Best-effort autoplay (may be blocked by browser autoplay policies).
+        if (wav) {
+          try {
+            // Create/resume audio context and play immediately if allowed.
+            const ctx = await ensureAudioContext();
+            try {
+              await ctx.resume();
+            } catch {
+              // ignore
+            }
+            await playWavB64(wav);
+          } catch {
+            setGreetNeedsTap(true);
+          }
+        }
+      } catch {
+        setGreetStatus("error");
       }
     })();
   }, [router]);
@@ -252,6 +299,33 @@ export default function VoicePage() {
       // ignore
     }
     setOutputLevel(0);
+  }
+
+  async function playWavB64(wavB64: string) {
+    if (!wavB64) return;
+    if (greetPlayedRef.current) return;
+    const ctx = await ensureAudioContext();
+    try {
+      await ctx.resume();
+    } catch {
+      // ignore
+    }
+    const gain = outGainRef.current;
+    if (!gain) return;
+    const buf = arrayBufferFromBase64(wavB64);
+    const audioBuffer = await ctx.decodeAudioData(buf.slice(0));
+    try {
+      playbackRef.current?.stop();
+    } catch {
+      // ignore
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(gain);
+    playbackRef.current = src;
+    greetPlayedRef.current = true;
+    setGreetNeedsTap(false);
+    src.start();
   }
 
   function closeWs() {
@@ -705,6 +779,25 @@ export default function VoicePage() {
           MVP voice streaming to FastAPI WebSocket (STT currently stubbed
           server-side).
         </p>
+
+        {greetStatus === "loading" ? (
+          <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+            Warming up voice…
+          </div>
+        ) : null}
+        {greetNeedsTap && greetWavB64 ? (
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => void playWavB64(greetWavB64)}
+              disabled={!greetWavB64}
+            >
+              Play greeting
+            </button>
+            <span style={{ marginLeft: 10, fontSize: 12, color: "#666" }}>
+              (tap required by browser audio policy)
+            </span>
+          </div>
+        ) : null}
 
         <section style={{ display: "flex", gap: 12, alignItems: "center" }}>
           {status !== "running" ? (
