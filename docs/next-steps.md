@@ -30,7 +30,7 @@ This is the punch list of what we still need to implement after getting:
   - ✅ `cancel` flushes queued audio and stops playback
 - **Voice selection**
   - ✅ Optional `voice` parameter supported end-to-end (request → API → bridge)
-  - ⏳ Persist per-avatar voice config in DB (move into the avatar/profile system)
+  - ✅ Persist per-avatar voice config in DB + UI, and have `/voice` use the active avatar voice automatically
 
 ## P0 — Auth + user identity (signup/login/logout)
 - **Users in Postgres**
@@ -46,26 +46,24 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Login/signup screens (modern “Lumina” UI)
   - ✅ Logout button + “current user” indicator
   - ✅ Memory UI uses authenticated user id (no default user id)
-  - ⏳ Remove remaining default-ID plumbing:
-    - `DEFAULT_USER_ID`/`NEXT_PUBLIC_DEFAULT_USER_ID`
-    - `DEFAULT_AVATAR_ID`/`NEXT_PUBLIC_DEFAULT_AVATAR_ID` (once avatars are real)
-    - Remove these env vars from `docker-compose.yml` + `env.example` and delete the corresponding settings fields
-    - Ensure all UI/WS flows derive `user_id` and `active_avatar_id` from `/auth/me` + `/avatars` (no hard-coded UUIDs)
+  - ✅ Removed default-ID plumbing:
+    - Removed `DEFAULT_USER_ID`/`DEFAULT_AVATAR_ID` + `NEXT_PUBLIC_*` env vars
+    - UI/WS now derive identity from `/auth/me` + `/avatars` (no hard-coded UUIDs)
   - ✅ Ensure backend tests run `make migrate` before pytest
 
 ## P1 — Conversation + memory integration
 - **Persist conversations**
   - Store turns in Postgres (thread/session table)
-  - Replay context into the voice session on reconnect
-  - Add `conversations` + `conversation_turns` tables (user_id, avatar_id, created_at, role, text, timing metadata)
-  - Wire voice WS to write each finalized turn (user transcript + assistant reply) to the DB
-  - Add minimal API to list recent conversations + fetch a conversation (for debug/inspect UX)
+  - ✅ Add `conversations` + `conversation_turns` tables
+  - ✅ Wire voice WS to write each finalized turn (user transcript + assistant reply) to the DB (best-effort; never breaks voice loop)
+  - ✅ Minimal API: list recent conversations + fetch a conversation (debug/inspect)
+  - ⏳ Replay context into the voice session on reconnect (load recent turns into `state.messages` on WS connect / new turn)
 - **Memory write policy**
   - ✅ Automatically ingest episodic memory from voice transcripts
   - (Decision) No sensitive-info filter required for local-only operation
 - **“Inspect/Delete memory” UX**
   - ✅ Add a basic UI to browse and delete stored memories
-  - ⏳ Remove manual avatar_id/user_id inputs once user/avatar profiles exist
+  - ⏳ Remove manual avatar_id input (derive from `active_avatar_id` and/or make “scope” explicit)
 
 ## P1 — Persona / avatar system
 - **Avatar profiles**
@@ -83,17 +81,17 @@ This is the punch list of what we still need to implement after getting:
 ## P1 — Reliability + developer UX
 - **Health checks**
   - API should report whether STT/TTS bridges are reachable and configured
-  - Expand `/health` to include: DB ok, Ollama ok, STT ok (if configured), TTS ok (if configured), avatar image engine readiness
+  - ✅ Expand `/health` to include: DB ok, Ollama ok, STT ok (if configured), TTS ok (if configured), avatar image engine readiness
 - **Optional internet search tool (opt-in)**
   - Add a PydanticAI tool that can perform web search when explicitly enabled (default remains offline-only)
   - UX: clear indicator when “internet mode” is on; log/cite sources in responses
 - **Better errors**
   - Structured error codes (not string-prefixed messages)
   - Show actionable UI prompts (“Start STT bridge”, “Set STT_BASE_URL”, etc.)
-  - Standardize WS `error` payloads: `{ code, message, details? }` (keep backwards-compatible `message`)
+  - ✅ Standardize WS `error` payloads: `{ code, message, details? }` (keep backwards-compatible `message`)
 - **Performance instrumentation**
   - Log timing: capture duration → STT latency → LLM latency → TTS latency
-  - Emit per-turn timing summary to logs (and optionally as a WS debug message behind a flag)
+  - ✅ Emit per-turn timing summary to logs (and optionally as a WS debug message behind a flag)
 
 ## P1 — Voice auth + per-user memory (critical follow-up)
 - **Authenticate /ws/voice**
@@ -115,9 +113,9 @@ This is the punch list of what we still need to implement after getting:
   - ✅ Keep Automatic1111 as a fallback engine
   - Note: Docker on macOS can’t use Metal/MPS; run on CPU in-container or add a host bridge for MPS acceleration
  - **Per-avatar voice config (finish wiring)**
-  - Persist per-avatar voice config in `avatars.voice_config`
-  - Add simple UI on `/avatar` to set the active avatar’s voice (string) + save
-  - Have `/voice` automatically use the active avatar voice config for TTS (no manual voice selection)
+  - ✅ Persist per-avatar voice config in `avatars.voice_config`
+  - ✅ UI on `/avatar` to set the active avatar’s voice + save
+  - ✅ `/voice` automatically uses the active avatar voice config for TTS (no manual voice selection)
 
 ## P2 — Security + privacy hardening
 - **No accidental network**
