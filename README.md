@@ -400,6 +400,75 @@ MCP (from Claude Desktop / LM Studio): new tools `list_calendars`,
 - **Daily-note folding** — surface that day's calendar events in the
   Explore page and markdown export.
 
+## Vault (markdown export / import)
+
+The DB is canonical; the **vault** is a human-readable interop layer.
+Export renders every memory + entity as markdown for backup, grep, git,
+or editing in Obsidian / any text editor. Import reads an edited vault
+back and updates existing rows (re-embedding any memory whose content
+changed).
+
+Layout written on export:
+
+```
+vault/
+  .reflections-version
+  daily/YYYY-MM-DD.md       — every memory that day, in time order
+  people/<slug>.md          — one note per person entity
+  places/<slug>.md
+  events/<slug>.md
+  topics/<slug>.md
+```
+
+Each note carries enough metadata (YAML frontmatter + HTML-comment
+markers for memory blocks) that the importer finds rows by id.
+
+### REST
+
+```bash
+# Export (downloads a tar.gz). Header X-Vault-Stats has the counts.
+curl -b cookie.txt -X POST http://localhost:8000/vault/export -o vault.tar.gz
+
+# Import (uploads a tar.gz of the same shape; dry_run=true to preview).
+curl -b cookie.txt -X POST 'http://localhost:8000/vault/import?dry_run=true' \
+  -F 'file=@vault.tar.gz'
+```
+
+### MCP
+
+From Claude Desktop / LM Studio:
+
+- `export_vault(target_path="/abs/path/vault.tar.gz")` — writes the
+  archive to disk, returns `{path, bytes, daily_notes, entity_notes,
+  memories, entities}`.
+- `import_vault(source_path="/abs/path/vault.tar.gz", dry_run=false)` —
+  applies edits, returns `{memories_updated, memories_reembedded,
+  entities_updated, skipped, errors}`.
+
+### What import will and won't do (v1)
+
+| Change                          | Honored? |
+| ------------------------------- | -------- |
+| Edit a memory's body            | Yes — re-embeds the new content. |
+| Add a description to an entity  | Yes. |
+| Edit an existing description    | Yes. |
+| Add a new memory                | **No** — record via `record_memory` / the chat UI. |
+| Add a new entity                | **No** — add via `add_entity` / inferred from new memories. |
+| Delete a memory / entity        | **No** — delete via `delete_memory` / `delete_entity`. |
+| Clear a description             | **No** in v1 — UI/MCP only. |
+
+These limits keep the import safe (no destructive surprises) and the DB
+canonical. A future v2 may bring bidirectional sync via a file watcher,
+likely a Rust `notify-rs` daemon.
+
+### Round-trip in action
+
+```bash
+# Export, edit a person's description in Obsidian, import back.
+make mcp-token email=you@example.com name="vault-roundtrip"  # -> $TOK
+# (use the MCP token via Claude Desktop, LM Studio, or curl)
+```
+
 ## Tests
 Run everything:
 
