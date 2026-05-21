@@ -212,6 +212,7 @@ class MemoryService:
         entity_ids: list[UUID] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        include_private: bool = True,
     ) -> list[MemoryRow]:
         if not query.strip():
             raise MemoryUnprocessableException("Query is empty")
@@ -231,6 +232,7 @@ class MemoryService:
                 entity_ids=entity_ids,
                 date_from=date_from,
                 date_to=date_to,
+                include_private=include_private,
             )
         except MemoryUnprocessableException:
             raise
@@ -354,6 +356,7 @@ class MemoryService:
         include_avatar_scope: bool,
         include_cards: bool,
         include_chunks: bool,
+        include_private: bool = True,
     ) -> list[MemoryRow]:
         try:
             return await self.repository.list_items(
@@ -366,6 +369,7 @@ class MemoryService:
                 include_avatar_scope=include_avatar_scope,
                 include_cards=include_cards,
                 include_chunks=include_chunks,
+                include_private=include_private,
             )
         except Exception as exc:
             raise MemoryServiceException("Failed to inspect memory", str(exc)) from exc

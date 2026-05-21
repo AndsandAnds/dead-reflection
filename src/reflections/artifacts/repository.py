@@ -49,6 +49,8 @@ artifacts_table = sa.Table(
     sa.Column("catalog_state", sa.Text(), nullable=False),
     sa.Column("error", sa.Text(), nullable=True),
     sa.Column("extracted_at", sa.DateTime(timezone=True), nullable=True),
+    # 8e privacy flag; chunks inherit at extraction time.
+    sa.Column("private", sa.Boolean(), nullable=False, server_default=sa.false()),
     sa.Column(
         "created_at",
         sa.DateTime(timezone=True),
@@ -57,6 +59,26 @@ artifacts_table = sa.Table(
     ),
     sa.Column(
         "updated_at",
+        sa.DateTime(timezone=True),
+        server_default=sa.text("now()"),
+        nullable=False,
+    ),
+)
+
+
+extraction_policies_table = sa.Table(
+    "artifact_extraction_policies",
+    metadata,
+    sa.Column("id", sa.Uuid(), primary_key=True),
+    sa.Column("user_id", sa.Uuid(), nullable=False),
+    sa.Column("volume_id", sa.Uuid(), nullable=False),
+    sa.Column("position", sa.Integer(), nullable=False),
+    sa.Column("glob_pattern", sa.Text(), nullable=True),
+    sa.Column("mime_prefix", sa.Text(), nullable=True),
+    sa.Column("kind", sa.Text(), nullable=True),
+    sa.Column("action", sa.Text(), nullable=False),
+    sa.Column(
+        "created_at",
         sa.DateTime(timezone=True),
         server_default=sa.text("now()"),
         nullable=False,
@@ -104,6 +126,7 @@ class ArtifactRow:
     catalog_state: str
     error: str | None
     extracted_at: dt.datetime | None
+    private: bool
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -123,8 +146,36 @@ def _art_row(r: Any) -> ArtifactRow:
         catalog_state=r.catalog_state,
         error=r.error,
         extracted_at=r.extracted_at,
+        private=bool(r.private),
         created_at=r.created_at,
         updated_at=r.updated_at,
+    )
+
+
+@dataclass(frozen=True)
+class PolicyRow:
+    id: UUID
+    user_id: UUID
+    volume_id: UUID
+    position: int
+    glob_pattern: str | None
+    mime_prefix: str | None
+    kind: str | None
+    action: str
+    created_at: dt.datetime
+
+
+def _policy_row(r: Any) -> PolicyRow:
+    return PolicyRow(
+        id=r.id,
+        user_id=r.user_id,
+        volume_id=r.volume_id,
+        position=r.position,
+        glob_pattern=r.glob_pattern,
+        mime_prefix=r.mime_prefix,
+        kind=r.kind,
+        action=r.action,
+        created_at=r.created_at,
     )
 
 
@@ -449,6 +500,7 @@ class ArtifactsRepository:
             artifacts_table.c.catalog_state,
             artifacts_table.c.error,
             artifacts_table.c.extracted_at,
+            artifacts_table.c.private,
             artifacts_table.c.created_at,
             artifacts_table.c.updated_at,
         ).where(
@@ -476,3 +528,204 @@ class ArtifactsRepository:
         res = await session.execute(stmt)
         await session.flush()
         return int(res.rowcount or 0)
+
+    # --- artifacts: extraction lifecycle ----------------------------------
+
+    async def mark_extracting(
+        self,
+        session: AsyncSession,
+        *,
+        artifact_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        stmt = (
+            sa.update(artifacts_table)
+            .where(
+                sa.and_(
+                    artifacts_table.c.id == artifact_id,
+                    artifacts_table.c.user_id == user_id,
+                )
+            )
+            .values(
+                catalog_state="extracting",
+                error=None,
+                updated_at=sa.func.now(),
+            )
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    async def mark_extracted(
+        self,
+        session: AsyncSession,
+        *,
+        artifact_id: UUID,
+        user_id: UUID,
+        attributes_patch: dict[str, Any] | None = None,
+        sha256: str | None = None,
+        private: bool | None = None,
+    ) -> None:
+        values: dict[str, Any] = {
+            "catalog_state": "extracted",
+            "extracted_at": sa.func.now(),
+            "updated_at": sa.func.now(),
+            "error": None,
+        }
+        if sha256 is not None:
+            values["sha256"] = sha256
+        if private is not None:
+            values["private"] = private
+        if attributes_patch is not None:
+            # We don't have JSONB merge in SQLAlchemy core in a portable
+            # way; read-modify-write is fine for this low-frequency op.
+            existing = await self.get_artifact(
+                session, user_id=user_id, artifact_id=artifact_id
+            )
+            merged = dict(existing.attributes or {}) if existing else {}
+            merged.update(attributes_patch)
+            values["attributes"] = merged
+        stmt = (
+            sa.update(artifacts_table)
+            .where(
+                sa.and_(
+                    artifacts_table.c.id == artifact_id,
+                    artifacts_table.c.user_id == user_id,
+                )
+            )
+            .values(**values)
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    async def mark_extraction_failed(
+        self,
+        session: AsyncSession,
+        *,
+        artifact_id: UUID,
+        user_id: UUID,
+        error: str,
+    ) -> None:
+        stmt = (
+            sa.update(artifacts_table)
+            .where(
+                sa.and_(
+                    artifacts_table.c.id == artifact_id,
+                    artifacts_table.c.user_id == user_id,
+                )
+            )
+            .values(
+                catalog_state="failed",
+                error=error[:500],
+                updated_at=sa.func.now(),
+            )
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    async def list_artifacts_ready_for_extraction(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        volume_id: UUID,
+        limit: int = 1000,
+    ) -> list[ArtifactRow]:
+        """Anything that's catalogued or stale — extracted/failed/extracting
+        are skipped."""
+        stmt = (
+            sa.select(
+                artifacts_table.c.id,
+                artifacts_table.c.user_id,
+                artifacts_table.c.volume_id,
+                artifacts_table.c.relative_path,
+                artifacts_table.c.kind,
+                artifacts_table.c.mime,
+                artifacts_table.c.size_bytes,
+                artifacts_table.c.mtime,
+                artifacts_table.c.sha256,
+                artifacts_table.c.attributes,
+                artifacts_table.c.catalog_state,
+                artifacts_table.c.error,
+                artifacts_table.c.extracted_at,
+                artifacts_table.c.private,
+                artifacts_table.c.created_at,
+                artifacts_table.c.updated_at,
+            )
+            .where(
+                sa.and_(
+                    artifacts_table.c.user_id == user_id,
+                    artifacts_table.c.volume_id == volume_id,
+                    artifacts_table.c.catalog_state.in_(["catalogued", "stale"]),
+                )
+            )
+            .order_by(artifacts_table.c.created_at.asc())
+            .limit(limit)
+        )
+        rows = (await session.execute(stmt)).all()
+        return [_art_row(r) for r in rows]
+
+    # --- extraction policies ----------------------------------------------
+
+    async def list_policies(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        volume_id: UUID,
+    ) -> list[PolicyRow]:
+        stmt = (
+            sa.select(
+                extraction_policies_table.c.id,
+                extraction_policies_table.c.user_id,
+                extraction_policies_table.c.volume_id,
+                extraction_policies_table.c.position,
+                extraction_policies_table.c.glob_pattern,
+                extraction_policies_table.c.mime_prefix,
+                extraction_policies_table.c.kind,
+                extraction_policies_table.c.action,
+                extraction_policies_table.c.created_at,
+            )
+            .where(
+                sa.and_(
+                    extraction_policies_table.c.user_id == user_id,
+                    extraction_policies_table.c.volume_id == volume_id,
+                )
+            )
+            .order_by(extraction_policies_table.c.position.asc())
+        )
+        rows = (await session.execute(stmt)).all()
+        return [_policy_row(r) for r in rows]
+
+    async def replace_policies(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        volume_id: UUID,
+        rules: list[dict[str, Any]],
+    ) -> list[PolicyRow]:
+        """Atomic replace: drop all rows for this volume, insert the new
+        set. Position is assigned from list order if not supplied."""
+        del_stmt = sa.delete(extraction_policies_table).where(
+            sa.and_(
+                extraction_policies_table.c.user_id == user_id,
+                extraction_policies_table.c.volume_id == volume_id,
+            )
+        )
+        await session.execute(del_stmt)
+        for idx, rule in enumerate(rules):
+            ins = sa.insert(extraction_policies_table).values(
+                id=uuid7_uuid(),
+                user_id=user_id,
+                volume_id=volume_id,
+                position=int(rule.get("position", idx)),
+                glob_pattern=rule.get("glob_pattern"),
+                mime_prefix=rule.get("mime_prefix"),
+                kind=rule.get("kind"),
+                action=rule["action"],
+            )
+            await session.execute(ins)
+        await session.flush()
+        return await self.list_policies(
+            session, user_id=user_id, volume_id=volume_id
+        )

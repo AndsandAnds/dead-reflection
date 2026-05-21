@@ -9,9 +9,11 @@ from uuid import UUID
 from pydantic import Field
 
 from reflections.core.db import database_manager
-from reflections.mcp.auth import current_user_id
+from reflections.mcp.auth import current_user_id, has_scope
 from reflections.memory.schemas import Turn
 from reflections.memory.service import MemoryService
+
+SCOPE_READ_PRIVATE = "mcp:read_private"
 
 _memory_service: MemoryService | None = None
 
@@ -102,6 +104,7 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
         searches both cards and chunks.
         """
         user_id = current_user_id()
+        include_private = has_scope(SCOPE_READ_PRIVATE)
         avatar_uuid = UUID(avatar_id) if avatar_id else None
         svc = _service()
         await database_manager.initialize()
@@ -116,6 +119,7 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
                 include_avatar_scope=avatar_uuid is not None,
                 include_cards=kind in ("card", "any"),
                 include_chunks=kind in ("chunk", "any"),
+                include_private=include_private,
             )
         return {
             "items": [
@@ -127,7 +131,8 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
                     "created_at": _iso(r.created_at),
                 }
                 for r in rows
-            ]
+            ],
+            "include_private": include_private,
         }
 
     @mcp.tool
@@ -140,8 +145,12 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
         """
         List memories by recency (newest first). For browsing rather than
         searching; use `recall_memory` for relevance-ranked results.
+
+        Honors the caller's `mcp:read_private` scope — tokens without
+        it never see chunks flagged `private`.
         """
         user_id = current_user_id()
+        include_private = has_scope(SCOPE_READ_PRIVATE)
         avatar_uuid = UUID(avatar_id) if avatar_id else None
         svc = _service()
         await database_manager.initialize()
@@ -156,6 +165,7 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
                 include_avatar_scope=avatar_uuid is not None,
                 include_cards=kind in ("card", "any"),
                 include_chunks=kind in ("chunk", "any"),
+                include_private=include_private,
             )
         return {
             "items": [

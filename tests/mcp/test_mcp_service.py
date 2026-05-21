@@ -16,6 +16,7 @@ from reflections.mcp.service import McpService, _hash
 class FakeRepo:
     rows: list[McpTokenRow] = field(default_factory=list)
     hashes_by_id: dict[UUID, str] = field(default_factory=dict)
+    scopes_by_id: dict[UUID, list[str]] = field(default_factory=dict)
 
     async def insert(
         self,
@@ -25,17 +26,21 @@ class FakeRepo:
         user_id: UUID,
         name: str,
         token_hash: str,
+        scopes: list[str] | None = None,
     ) -> McpTokenRow:
+        eff = scopes if scopes is not None else ["mcp:read", "mcp:write"]
         row = McpTokenRow(
             id=token_id,
             user_id=user_id,
             name=name,
+            scopes=eff,
             created_at=dt.datetime.now(dt.UTC),
             last_used_at=None,
             revoked_at=None,
         )
         self.rows.append(row)
         self.hashes_by_id[token_id] = token_hash
+        self.scopes_by_id[token_id] = eff
         return row
 
     async def list_for_user(self, _session, *, user_id: UUID):
@@ -48,6 +53,7 @@ class FakeRepo:
                     id=r.id,
                     user_id=r.user_id,
                     name=r.name,
+                    scopes=r.scopes,
                     created_at=r.created_at,
                     last_used_at=r.last_used_at,
                     revoked_at=dt.datetime.now(dt.UTC),
@@ -58,12 +64,20 @@ class FakeRepo:
     async def get_active_user_id_by_token_hash(
         self, _session, *, token_hash: str
     ) -> UUID | None:
+        pair = await self.get_active_user_and_scopes_by_token_hash(
+            _session, token_hash=token_hash
+        )
+        return pair[0] if pair else None
+
+    async def get_active_user_and_scopes_by_token_hash(
+        self, _session, *, token_hash: str
+    ):
         for r in self.rows:
             if (
                 self.hashes_by_id.get(r.id) == token_hash
                 and r.revoked_at is None
             ):
-                return r.user_id
+                return r.user_id, list(self.scopes_by_id.get(r.id, []))
         return None
 
     async def touch_last_used(self, _session, *, token_hash: str) -> None:

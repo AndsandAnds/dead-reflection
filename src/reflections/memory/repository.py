@@ -60,6 +60,14 @@ memory_items = sa.Table(
     ),
     sa.Column("source_session_id", sa.Text(), nullable=True),
     sa.Column("metadata", sa.JSON(), nullable=True),
+    # Phase 8a: pointer back to the source artifact when this chunk came
+    # from an extractor (PDF page, audio segment, image caption, ...).
+    sa.Column("artifact_id", sa.Uuid(), nullable=True),
+    sa.Column("artifact_locator", sa.JSON(), nullable=True),
+    # Phase 8e: when true, the chunk is excluded from MCP recall
+    # responses unless the caller's token has the `mcp:read_private`
+    # scope. Web UI (session cookie) sees everything regardless.
+    sa.Column("private", sa.Boolean(), nullable=False, server_default=sa.false()),
 )
 
 
@@ -76,8 +84,11 @@ class MemoryRepository:
         include_avatar_scope: bool,
         include_cards: bool,
         include_chunks: bool,
+        include_private: bool = True,
     ) -> list[MemoryRow]:
         conditions: list[Any] = [memory_items.c.user_id == user_id]
+        if not include_private:
+            conditions.append(memory_items.c.private.is_(False))
 
         scope_conds: list[Any] = []
         if include_user_scope:
@@ -156,6 +167,9 @@ class MemoryRepository:
         embedding: list[float],
         source_session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        artifact_id: UUID | None = None,
+        artifact_locator: dict[str, Any] | None = None,
+        private: bool = False,
     ) -> UUID:
         """
         Insert a memory row.
@@ -179,6 +193,9 @@ class MemoryRepository:
                 content=content,
                 embedding=embedding_expr,
                 source_session_id=source_session_id,
+                artifact_id=artifact_id,
+                artifact_locator=artifact_locator,
+                private=private,
                 metadata=metadata,
             )
             .returning(memory_items.c.id)
@@ -202,6 +219,7 @@ class MemoryRepository:
         entity_ids: list[UUID] | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        include_private: bool = True,
     ) -> list[MemoryRow]:
         """
         Vector search using pgvector inner product (vectors are L2-normalized).
@@ -249,6 +267,9 @@ class MemoryRepository:
                 .subquery()
             )
             conditions.append(memory_items.c.id.in_(sa.select(link_subq)))
+
+        if not include_private:
+            conditions.append(memory_items.c.private.is_(False))
 
         # SQLAlchemy 2.x: a TextClause is not orderable on its own; use
         # literal_column so we can apply .asc() and keep ASC explicit.

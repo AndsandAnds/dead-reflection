@@ -12,7 +12,12 @@ from reflections.mcp.exceptions import (
     McpServiceException,
     McpTokenNotFoundException,
 )
-from reflections.mcp.repository import McpTokenRow, McpTokensRepository
+from reflections.mcp.repository import (
+    DEFAULT_SCOPES,
+    KNOWN_SCOPES,
+    McpTokenRow,
+    McpTokensRepository,
+)
 
 TOKEN_PREFIX = "ref_mcp_"
 TOKEN_BYTES = 32  # 256 bits of entropy
@@ -35,13 +40,29 @@ class McpService:
         return cls(repo=McpTokensRepository())
 
     async def mint(
-        self, session: AsyncSession, *, user_id: UUID, name: str
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        name: str,
+        scopes: list[str] | None = None,
     ) -> tuple[McpTokenRow, str]:
         name_stripped = name.strip()
         if not name_stripped:
             raise McpServiceException(
                 "empty_name", "Token name must be non-empty"
             )
+        if scopes is None:
+            effective_scopes = list(DEFAULT_SCOPES)
+        else:
+            # Quietly drop unknown scope strings to avoid persisting typos
+            # ("mcp:rread") that would never grant anything anyway.
+            effective_scopes = sorted(set(scopes) & KNOWN_SCOPES)
+            if not effective_scopes:
+                raise McpServiceException(
+                    "no_valid_scopes",
+                    f"At least one of {sorted(KNOWN_SCOPES)} must be set.",
+                )
         raw = generate_raw_token()
         try:
             row = await self.repo.insert(
@@ -50,6 +71,7 @@ class McpService:
                 user_id=user_id,
                 name=name_stripped,
                 token_hash=_hash(raw),
+                scopes=effective_scopes,
             )
             await session.commit()
         except Exception as exc:
@@ -78,23 +100,28 @@ class McpService:
     async def verify_and_get_user_id(
         self, session: AsyncSession, *, raw_token: str
     ) -> UUID | None:
-        """
-        Returns the user_id this token belongs to, or None if invalid/revoked.
+        """Back-compat wrapper. Use `verify` for new callers."""
+        result = await self.verify(session, raw_token=raw_token)
+        return result[0] if result else None
 
-        Best-effort updates `last_used_at` (failure to update is non-fatal —
-        verification shouldn't fail because we couldn't write a timestamp).
+    async def verify(
+        self, session: AsyncSession, *, raw_token: str
+    ) -> tuple[UUID, list[str]] | None:
+        """
+        Resolve a raw token → (user_id, scopes). Returns None on invalid
+        or revoked tokens. Touches last_used_at best-effort.
         """
         if not raw_token:
             return None
         token_hash = _hash(raw_token)
-        user_id = await self.repo.get_active_user_id_by_token_hash(
+        pair = await self.repo.get_active_user_and_scopes_by_token_hash(
             session, token_hash=token_hash
         )
-        if user_id is None:
+        if pair is None:
             return None
         try:
             await self.repo.touch_last_used(session, token_hash=token_hash)
             await session.commit()
         except Exception:
             await session.rollback()
-        return user_id
+        return pair

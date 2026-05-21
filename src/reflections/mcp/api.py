@@ -35,6 +35,7 @@ def _to_public(row) -> McpTokenPublic:  # type: ignore[no-untyped-def]
         id=row.id,
         user_id=row.user_id,
         name=row.name,
+        scopes=list(getattr(row, "scopes", []) or []),
         created_at=row.created_at,
         last_used_at=row.last_used_at,
         revoked_at=row.revoked_at,
@@ -49,7 +50,9 @@ async def mint_token(
     user=Depends(current_user_required),
 ) -> McpTokenCreated:
     try:
-        row, raw = await svc.mint(session, user_id=user.id, name=req.name)
+        row, raw = await svc.mint(
+            session, user_id=user.id, name=req.name, scopes=req.scopes
+        )
     except McpServiceException as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

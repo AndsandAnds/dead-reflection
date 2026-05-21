@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastmcp import FastMCP  # type: ignore[import-not-found]
 
 from reflections.mcp.auth import ReflectionsTokenVerifier
+from reflections.mcp.tools import artifacts as artifact_tools
 from reflections.mcp.tools import calendar as calendar_tools
 from reflections.mcp.tools import entities as entity_tools
 from reflections.mcp.tools import memory as memory_tools
@@ -28,10 +29,15 @@ def _build() -> FastMCP:
             "`recall_memory` to surface relevant past notes, and the entity "
             "tools to navigate the knowledge graph of people, places, events, "
             "and topics. `export_vault` snapshots everything as markdown for "
-            "Obsidian / grep / git. The `*_calendar_event` tools read/write "
-            "the user's Apple Calendar via a local bridge (macOS only). The "
-            "`internet_search` tool is admin-only and audits every call; all "
-            "other data stays on the user's machine."
+            "Obsidian / grep / git. `register_volume` + `catalog_volume` "
+            "index files on external drives in place (no copying), and "
+            "`set_extraction_policy` + `apply_extraction_policies` derive "
+            "searchable text from PDFs, images, audio, and video. Chunks "
+            "flagged `private` are excluded from recall unless your token "
+            "has the `mcp:read_private` scope. The `*_calendar_event` tools "
+            "read/write the user's Apple Calendar via a local bridge (macOS "
+            "only). The `internet_search` tool is admin-only and audits "
+            "every call; all other data stays on the user's machine."
         ),
         auth=ReflectionsTokenVerifier(),
     )
@@ -40,6 +46,7 @@ def _build() -> FastMCP:
     web_tools.register(server)
     calendar_tools.register(server)
     vault_tools.register(server)
+    artifact_tools.register(server)
     return server
 
 

@@ -26,25 +26,26 @@ class ReflectionsTokenVerifier(TokenVerifier):
         await database_manager.initialize()
         try:
             async with database_manager.session() as session:
-                user_id = await self._service.verify_and_get_user_id(
+                pair = await self._service.verify(
                     session, raw_token=token
                 )
         except Exception as exc:
             logger.warning("mcp_token_verify_error: %s", exc)
             return None
-        if user_id is None:
+        if pair is None:
             return None
+        user_id, scopes = pair
         return AccessToken(
             token=token,
             client_id=str(user_id),
-            scopes=["mcp:read", "mcp:write"],
+            scopes=list(scopes),
             # No hard expiry on tokens; revocation is via the mcp_tokens table.
             expires_at=int(
                 (
                     dt.datetime.now(dt.UTC) + dt.timedelta(days=365)
                 ).timestamp()
             ),
-            claims={"user_id": str(user_id)},
+            claims={"user_id": str(user_id), "scopes": list(scopes)},
         )
 
 
@@ -58,3 +59,15 @@ def current_user_id() -> UUID:
     if token is None or not token.client_id:
         raise ValueError("MCP request is not authenticated")
     return UUID(token.client_id)
+
+
+def current_scopes() -> set[str]:
+    """Scopes carried on the caller's MCP token, as a set for `in` checks."""
+    token = get_access_token()
+    if token is None:
+        return set()
+    return set(token.scopes or [])
+
+
+def has_scope(scope: str) -> bool:
+    return scope in current_scopes()

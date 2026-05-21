@@ -56,13 +56,14 @@ def test_mint_token_returns_raw_once(client: TestClient) -> None:
         id=UUID("00000000-0000-0000-0000-0000000000bb"),
         user_id=user.id,
         name="Claude Desktop",
+        scopes=["mcp:read", "mcp:write"],
         created_at=dt.datetime.now(dt.UTC),
         last_used_at=None,
         revoked_at=None,
     )
 
     class FakeService:
-        async def mint(self, _session, *, user_id, name):  # type: ignore[no-untyped-def]
+        async def mint(self, _session, *, user_id, name, scopes=None):  # type: ignore[no-untyped-def]
             assert user_id == user.id
             return fake_row, "ref_mcp_FAKE"
 
