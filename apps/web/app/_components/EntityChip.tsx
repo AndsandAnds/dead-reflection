@@ -4,11 +4,18 @@ import Link from "next/link";
 
 import type { EntityKind, LinkedEntity } from "../_lib/memory";
 
+// Palette kept in sync with graph/page.tsx COLOR_BY_KIND. If you tweak one,
+// tweak the other. fg is the saturated solid; bg is a low-alpha wash for
+// the chip background.
 const KIND_COLORS: Record<EntityKind, { bg: string; fg: string }> = {
+  // Hot pink
   person: { bg: "rgba(236,72,153,0.12)", fg: "rgba(190,24,93,1)" },
-  place: { bg: "rgba(34,197,94,0.12)", fg: "rgba(22,101,52,1)" },
-  event: { bg: "rgba(245,158,11,0.14)", fg: "rgba(146,64,14,1)" },
-  topic: { bg: "rgba(99,102,241,0.12)", fg: "rgba(67,56,202,1)" },
+  // Teal
+  place: { bg: "rgba(20,184,166,0.14)", fg: "rgba(15,118,110,1)" },
+  // Orange
+  event: { bg: "rgba(249,115,22,0.14)", fg: "rgba(194,65,12,1)" },
+  // Marigold (warm yellow-orange)
+  topic: { bg: "rgba(234,179,8,0.16)", fg: "rgba(161,98,7,1)" },
 };
 
 export function EntityChip({

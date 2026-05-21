@@ -76,7 +76,8 @@ export function MemoryCard({
             textTransform: "uppercase",
             letterSpacing: 0.5,
             fontWeight: 700,
-            color: memory.kind === "card" ? "#4338ca" : "#0f766e",
+            // Memory kinds are both green; card (high-signal) is deeper.
+            color: memory.kind === "card" ? "#15803d" : "#16a34a",
           }}
         >
           {memory.kind}

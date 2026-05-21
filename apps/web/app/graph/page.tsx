@@ -26,13 +26,15 @@ type FGNode = GraphNode & {
   size: number;
 };
 
+// Palette — keep in sync with EntityChip.tsx KIND_COLORS.
 const COLOR_BY_KIND: Record<string, string> = {
-  memory_card: "#4338ca",
-  memory_chunk: "#0f766e",
-  entity_person: "#be185d",
-  entity_place: "#15803d",
-  entity_event: "#b45309",
-  entity_topic: "#4338ca",
+  // Memory: two shades of green so cards (high-signal) read as deeper.
+  memory_card: "#15803d",   // green-700
+  memory_chunk: "#22c55e",  // green-500
+  entity_person: "#ec4899", // hot pink
+  entity_place: "#14b8a6",  // teal
+  entity_event: "#f97316",  // orange
+  entity_topic: "#eab308",  // marigold
 };
 
 function colorFor(kind: string): string {
