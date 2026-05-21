@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     CALENDAR_BRIDGE_SECRET: str | None = None
     CALENDAR_BRIDGE_TIMEOUT_S: float = 10.0
 
+    # Catalog bridge (host-run; macOS Full Disk Access via .app bundle).
+    # Walks external drives in place — bytes never leave the original
+    # path. See docs/artifact-catalog.md.
+    CATALOG_BRIDGE_URL: str | None = None  # e.g. http://host.docker.internal:9005
+    CATALOG_BRIDGE_SECRET: str | None = None
+    CATALOG_BRIDGE_TIMEOUT_S: float = 30.0  # walks of large dirs need slack
+
     # Auth (HTTP-only cookie session)
     AUTH_COOKIE_NAME: str
     AUTH_COOKIE_SECURE: bool

@@ -1,7 +1,7 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
 .PHONY: migrate revision
-.PHONY: stt-bridge tts-bridge calendar-bridge calendar-bridge-app
-.PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg calendar-bridge-bg
+.PHONY: stt-bridge tts-bridge calendar-bridge calendar-bridge-app catalog-bridge catalog-bridge-app
+.PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg calendar-bridge-bg catalog-bridge-bg
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
@@ -11,9 +11,11 @@ RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
 TTS_PID := $(RUN_DIR)/tts-bridge.pid
 CAL_PID := $(RUN_DIR)/calendar-bridge.pid
+CAT_PID := $(RUN_DIR)/catalog-bridge.pid
 STT_LOG := $(RUN_DIR)/stt-bridge.log
 TTS_LOG := $(RUN_DIR)/tts-bridge.log
 CAL_LOG := $(RUN_DIR)/calendar-bridge.log
+CAT_LOG := $(RUN_DIR)/catalog-bridge.log
 
 help:
 	@echo "Targets:"
@@ -54,7 +56,7 @@ up:
 down:
 	docker compose down
 
-bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg calendar-bridge-bg
+bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg calendar-bridge-bg catalog-bridge-bg
 	@sleep 0.2
 	@$(MAKE) bridges-verify-running
 	@echo "Host bridges: up"
@@ -110,6 +112,9 @@ bridges-verify-running:
 	if [ -f "$(CAL_PID)" ]; then \
 	  if ! kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then bad=1; echo "calendar-bridge failed to start. See $(CAL_LOG)"; fi; \
 	fi; \
+	if [ -f "$(CAT_PID)" ]; then \
+	  if ! kill -0 "$$(cat "$(CAT_PID)")" 2>/dev/null; then bad=1; echo "catalog-bridge failed to start. See $(CAT_LOG)"; fi; \
+	fi; \
 	if [ "$$bad" -ne 0 ]; then exit 2; fi
 
 check-tts-piper:
@@ -163,7 +168,7 @@ check-stt-whisper:
 bridges-status:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
-	for n in stt tts calendar; do \
+	for n in stt tts calendar catalog; do \
 	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
 	  if [ -f "$$pidfile" ] && kill -0 "$$(cat "$$pidfile")" 2>/dev/null; then \
 	    echo "$$n: running (pid $$(cat "$$pidfile"))"; \
@@ -174,7 +179,7 @@ bridges-status:
 
 bridges-down:
 	@set -e; \
-	for n in stt tts calendar; do \
+	for n in stt tts calendar catalog; do \
 	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
 	  if [ -f "$$pidfile" ]; then \
 	    pid="$$(cat "$$pidfile")"; \
@@ -305,6 +310,16 @@ calendar-bridge:
 calendar-bridge-app:
 	@PROJECT_ROOT="$(CURDIR)" sh scripts/build-calendar-bridge-app.sh
 
+catalog-bridge:
+	poetry run python -m uvicorn reflections.catalog_bridge.main:app --host 127.0.0.1 --port 9005
+
+# Same TCC story as the calendar bridge — walking external drives needs
+# Full Disk Access, which TCC only grants to bundled apps. Use the .app
+# for any real catalog work; the bare `make catalog-bridge` target is
+# only useful for development against paths inside the user's home tree.
+catalog-bridge-app:
+	@PROJECT_ROOT="$(CURDIR)" sh scripts/build-catalog-bridge-app.sh
+
 stt-bridge-bg:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
@@ -354,6 +369,27 @@ calendar-bridge-bg:
 	  sleep 0.5; \
 	  if ! kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then \
 	    echo "ERROR: calendar-bridge failed to start. See $(CAL_LOG)"; \
+	    exit 2; \
+	  fi; \
+	fi
+
+catalog-bridge-bg:
+	@mkdir -p "$(RUN_DIR)"
+	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -z "$${CATALOG_BRIDGE_URL:-}" ]; then \
+	  echo "catalog-bridge: not starting (CATALOG_BRIDGE_URL not set in env or .env)"; \
+	  exit 0; \
+	fi; \
+	if [ -f "$(CAT_PID)" ] && kill -0 "$$(cat "$(CAT_PID)")" 2>/dev/null; then \
+	  echo "catalog-bridge already running (pid $$(cat "$(CAT_PID)"))"; \
+	else \
+	  rm -f "$(CAT_PID)"; \
+	  echo "Starting catalog-bridge in background (logs: $(CAT_LOG))"; \
+	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) catalog-bridge' >"$(CAT_LOG)" 2>&1 & echo $$! >"$(CAT_PID)"; \
+	  sleep 0.5; \
+	  if ! kill -0 "$$(cat "$(CAT_PID)")" 2>/dev/null; then \
+	    echo "ERROR: catalog-bridge failed to start. See $(CAT_LOG)"; \
 	    exit 2; \
 	  fi; \
 	fi
