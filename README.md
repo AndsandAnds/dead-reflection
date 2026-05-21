@@ -314,6 +314,92 @@ curl -b your_cookie_jar.txt 'http://localhost:8000/admin/outbound-audit-log?limi
   container and tighten container egress via iptables, with bridges either
   whitelisted or moved into Docker.
 
+## Apple Calendar (host bridge)
+
+Reflections can read and write your local Apple Calendar via a small
+host-side FastAPI bridge (`reflections.calendar_bridge`) — the same pattern
+as the STT/TTS bridges. It uses [`pyobjc-framework-EventKit`](https://pypi.org/project/pyobjc-framework-EventKit/),
+which is macOS only.
+
+### Install + start
+
+```bash
+# 1. Install macOS-only deps into the host Poetry env (once).
+poetry install --extras mac
+
+# 2. Tell the api container where the bridge will listen.
+#    Add to .env:
+CALENDAR_BRIDGE_URL=http://host.docker.internal:9004
+# optional shared secret so other Mac apps can't poke this port:
+CALENDAR_BRIDGE_SECRET=$(openssl rand -hex 24)
+
+# 3. Start the bridge (foreground or background).
+make calendar-bridge          # foreground
+make calendar-bridge-bg       # background (pid in ./run, logs in ./run/)
+# bridges-up also starts STT + TTS in one go:
+make bridges-up
+```
+
+### One-time macOS permission grant
+
+EventKit requires user consent. **First-time setup needs a manual step
+because a CLI-launched Python process doesn't carry an Info.plist that
+macOS recognizes as a Calendar-aware app.** When the bridge calls
+`requestFullAccessToEventsWithCompletion_`, macOS silently denies and your
+terminal won't show the dialog.
+
+The fix is to grant access via System Settings:
+
+1. **System Settings → Privacy & Security → Calendars**
+2. Toggle on the Python binary running the bridge — typically your
+   Poetry venv's `python`, your `pyenv`-managed Python, or the Terminal/
+   iTerm/Cursor app that launched the bridge. On macOS 14+ choose
+   **Full Access** for both read and write.
+3. Restart the bridge:
+   ```bash
+   make bridges-down && make bridges-up
+   ```
+4. Verify:
+   ```bash
+   curl -s http://127.0.0.1:9004/health | jq .
+   # → {"status":"ok","auth_status":"fullAccess","auth_status_code":5}
+   ```
+
+If you don't see Python listed at all under Privacy & Security → Calendars,
+trigger the prompt-registration first by calling `POST /authorize` once:
+
+```bash
+curl -X POST http://127.0.0.1:9004/authorize
+```
+
+Even if it returns `granted:false`, macOS now knows about your process and
+it'll appear in the Calendars permission list.
+
+### What you can do once granted
+
+REST (authenticated session cookie required):
+
+```bash
+curl -b cookie.txt http://localhost:8000/calendar/health      # bridge state
+curl -b cookie.txt http://localhost:8000/calendar/calendars   # list calendars
+curl -b cookie.txt 'http://localhost:8000/calendar/events?start=2026-05-21T00:00:00Z&end=2026-05-22T00:00:00Z'
+```
+
+MCP (from Claude Desktop / LM Studio): new tools `list_calendars`,
+`list_calendar_events`, `create_calendar_event`, `update_calendar_event`,
+`delete_calendar_event` (all timestamps ISO 8601 with timezone offset).
+
+### Deferred (v2)
+
+- **Bundle as a proper .app** so EventKit prompts the user instead of needing
+  the manual System Settings step. Could ship as `.venv/Calendar Bridge.app`
+  with `py2app` / `briefcase`, or wrap with a small Swift launcher.
+- **Web UI `/calendar` page** — today + upcoming, quick-create form.
+- **Voice integration** — "what's on my calendar today?" / "schedule X
+  tomorrow at 3" via the voice agent loop (needs PydanticAI tool wiring).
+- **Daily-note folding** — surface that day's calendar events in the
+  Explore page and markdown export.
+
 ## Tests
 Run everything:
 

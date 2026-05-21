@@ -36,6 +36,13 @@ ml = [
     "accelerate>=0.30.0,<1.0.0",
     "safetensors>=0.4.0,<1.0.0",
 ]
+# macOS-only deps used by the host calendar bridge. NOT installed inside the
+# Linux Docker image (pyobjc only builds on macOS). Install on the host with:
+#   poetry install --extras mac
+mac = [
+    "pyobjc-core>=10.3",
+    "pyobjc-framework-EventKit>=10.3",
+]
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0.1"

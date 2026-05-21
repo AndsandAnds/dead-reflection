@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # calls route through when set. Leave unset for direct egress.
     EGRESS_PROXY_URL: str | None = None
 
+    # Calendar bridge (host-run, macOS EventKit). Same pattern as STT/TTS.
+    CALENDAR_BRIDGE_URL: str | None = None  # e.g. http://host.docker.internal:9004
+    CALENDAR_BRIDGE_SECRET: str | None = None
+    CALENDAR_BRIDGE_TIMEOUT_S: float = 10.0
+
     # Auth (HTTP-only cookie session)
     AUTH_COOKIE_NAME: str
     AUTH_COOKIE_SECURE: bool

@@ -1,17 +1,19 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
 .PHONY: migrate revision
-.PHONY: stt-bridge tts-bridge
-.PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg
+.PHONY: stt-bridge tts-bridge calendar-bridge
+.PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg calendar-bridge-bg
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
-.PHONY: bridges-preflight bridges-verify-running check-bridge-python check-tts-piper check-stt-whisper
+.PHONY: bridges-preflight bridges-verify-running check-bridge-python check-tts-piper check-stt-whisper check-calendar-eventkit
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
 TTS_PID := $(RUN_DIR)/tts-bridge.pid
+CAL_PID := $(RUN_DIR)/calendar-bridge.pid
 STT_LOG := $(RUN_DIR)/stt-bridge.log
 TTS_LOG := $(RUN_DIR)/tts-bridge.log
+CAL_LOG := $(RUN_DIR)/calendar-bridge.log
 
 help:
 	@echo "Targets:"
@@ -52,7 +54,7 @@ up:
 down:
 	docker compose down
 
-bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg
+bridges-up: bridges-preflight stt-bridge-bg tts-bridge-bg calendar-bridge-bg
 	@sleep 0.2
 	@$(MAKE) bridges-verify-running
 	@echo "Host bridges: up"
@@ -67,6 +69,21 @@ bridges-preflight:
 	fi; \
 	if [ "$${TTS_ENGINE:-say}" = "piper" ]; then \
 	  $(MAKE) check-tts-piper; \
+	fi; \
+	if [ -n "$${CALENDAR_BRIDGE_URL:-}" ]; then \
+	  $(MAKE) check-calendar-eventkit; \
+	fi
+
+check-calendar-eventkit:
+	@# Calendar bridge needs pyobjc-framework-EventKit in the host Poetry env.
+	@set -e; \
+	if ! poetry run python -c 'import EventKit' >/dev/null 2>&1; then \
+	  echo "ERROR: calendar bridge needs pyobjc-framework-EventKit (macOS only)."; \
+	  echo "Install with:"; \
+	  echo "  poetry install --extras mac"; \
+	  echo "Or, into the existing .venv:"; \
+	  echo "  .venv/bin/pip install 'pyobjc-core>=10.3' 'pyobjc-framework-EventKit>=10.3'"; \
+	  exit 2; \
 	fi
 
 check-bridge-python:
@@ -89,6 +106,9 @@ bridges-verify-running:
 	fi; \
 	if [ -f "$(TTS_PID)" ]; then \
 	  if ! kill -0 "$$(cat "$(TTS_PID)")" 2>/dev/null; then bad=1; echo "tts-bridge failed to start. See $(TTS_LOG)"; fi; \
+	fi; \
+	if [ -f "$(CAL_PID)" ]; then \
+	  if ! kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then bad=1; echo "calendar-bridge failed to start. See $(CAL_LOG)"; fi; \
 	fi; \
 	if [ "$$bad" -ne 0 ]; then exit 2; fi
 
@@ -143,7 +163,7 @@ check-stt-whisper:
 bridges-status:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
-	for n in stt tts; do \
+	for n in stt tts calendar; do \
 	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
 	  if [ -f "$$pidfile" ] && kill -0 "$$(cat "$$pidfile")" 2>/dev/null; then \
 	    echo "$$n: running (pid $$(cat "$$pidfile"))"; \
@@ -154,7 +174,7 @@ bridges-status:
 
 bridges-down:
 	@set -e; \
-	for n in stt tts; do \
+	for n in stt tts calendar; do \
 	  pidfile="$(RUN_DIR)/$$n-bridge.pid"; \
 	  if [ -f "$$pidfile" ]; then \
 	    pid="$$(cat "$$pidfile")"; \
@@ -273,6 +293,9 @@ stt-bridge:
 tts-bridge:
 	poetry run python -m uvicorn reflections.tts_bridge.main:app --host 0.0.0.0 --port 9002
 
+calendar-bridge:
+	poetry run python -m uvicorn reflections.calendar_bridge.main:app --host 127.0.0.1 --port 9004
+
 stt-bridge-bg:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
@@ -301,6 +324,26 @@ tts-bridge-bg:
 	  sleep 0.2; \
 	  if ! kill -0 "$$(cat "$(TTS_PID)")" 2>/dev/null; then \
 	    echo "ERROR: tts-bridge failed to start. See $(TTS_LOG)"; \
+	    exit 2; \
+	  fi; \
+	fi
+
+calendar-bridge-bg:
+	@mkdir -p "$(RUN_DIR)"
+	@set -e; \
+	if [ -z "$${CALENDAR_BRIDGE_URL:-}" ]; then \
+	  echo "calendar-bridge: not starting (CALENDAR_BRIDGE_URL not set)"; \
+	  exit 0; \
+	fi; \
+	if [ -f "$(CAL_PID)" ] && kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then \
+	  echo "calendar-bridge already running (pid $$(cat "$(CAL_PID)"))"; \
+	else \
+	  rm -f "$(CAL_PID)"; \
+	  echo "Starting calendar-bridge in background (logs: $(CAL_LOG))"; \
+	  nohup sh -lc 'cd "$(CURDIR)" && set -a && [ -f .env ] && . ./.env || true && set +a && exec $(MAKE) calendar-bridge' >"$(CAL_LOG)" 2>&1 & echo $$! >"$(CAL_PID)"; \
+	  sleep 0.5; \
+	  if ! kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then \
+	    echo "ERROR: calendar-bridge failed to start. See $(CAL_LOG)"; \
 	    exit 2; \
 	  fi; \
 	fi
