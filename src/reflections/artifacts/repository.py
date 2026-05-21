@@ -66,6 +66,22 @@ artifacts_table = sa.Table(
 )
 
 
+artifact_entity_links_table = sa.Table(
+    "artifact_entity_links",
+    metadata,
+    sa.Column("artifact_id", sa.Uuid(), primary_key=True, nullable=False),
+    sa.Column("entity_id", sa.Uuid(), primary_key=True, nullable=False),
+    sa.Column("relation", sa.Text(), primary_key=True, nullable=False, default=""),
+    sa.Column("weight", sa.Float(), nullable=True),
+    sa.Column(
+        "created_at",
+        sa.DateTime(timezone=True),
+        server_default=sa.text("now()"),
+        nullable=False,
+    ),
+)
+
+
 extraction_policies_table = sa.Table(
     "artifact_extraction_policies",
     metadata,

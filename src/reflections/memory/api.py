@@ -216,14 +216,26 @@ async def graph_memory(
     date_to: Annotated[datetime | None, Query()] = None,
     entity_id: Annotated[UUID | None, Query()] = None,
     limit_memories: Annotated[int, Query(ge=1, le=2000)] = 500,
+    include_artifacts: Annotated[bool, Query()] = True,
 ) -> GraphResponse:
-    mems, ents, edges = await svc.get_graph(
+    (
+        mems,
+        ents,
+        edges,
+        artifacts,
+        mem_art_edges,
+        art_ent_edges,
+    ) = await svc.get_graph(
         session,
         user_id=user.id,
         date_from=date_from,
         date_to=date_to,
         entity_id=entity_id,
         limit_memories=limit_memories,
+        # Web UI is session-cookie auth (the user themselves) — show
+        # their private content. MCP recall is the gated surface.
+        include_private=True,
+        include_artifacts=include_artifacts,
     )
     nodes: list[GraphNode] = []
     for m in mems:
@@ -244,6 +256,14 @@ async def graph_memory(
                 label=e.name,
             )
         )
+    for a in artifacts:
+        nodes.append(
+            GraphNode(
+                id=f"artifact:{a['id']}",
+                kind=f"artifact_{a['kind']}",
+                label=a["label"],
+            )
+        )
     edge_models = [
         GraphEdge(
             source=f"memory:{mid}",
@@ -252,4 +272,20 @@ async def graph_memory(
         )
         for (mid, eid, rel) in edges
     ]
+    for (mid, aid) in mem_art_edges:
+        edge_models.append(
+            GraphEdge(
+                source=f"memory:{mid}",
+                target=f"artifact:{aid}",
+                relation="from_artifact",
+            )
+        )
+    for (aid, eid, rel) in art_ent_edges:
+        edge_models.append(
+            GraphEdge(
+                source=f"artifact:{aid}",
+                target=f"entity:{eid}",
+                relation=rel or "mentions",
+            )
+        )
     return GraphResponse(nodes=nodes, edges=edge_models)

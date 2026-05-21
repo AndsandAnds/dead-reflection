@@ -325,11 +325,11 @@ class MemoryService:
         date_to: datetime | None = None,
         entity_id: UUID | None = None,
         limit_memories: int = 500,
-    ) -> tuple[
-        list[MemoryRow],
-        list[LinkedEntityRow],
-        list[tuple[UUID, UUID, str]],
-    ]:
+        include_private: bool = True,
+        include_artifacts: bool = True,
+    ):
+        """Returns (memories, entities, mem_ent_edges, artifacts,
+        mem_art_edges, art_ent_edges). See repository.graph for details."""
         try:
             return await self.repository.graph(
                 session,
@@ -338,6 +338,8 @@ class MemoryService:
                 date_to=date_to,
                 entity_id=entity_id,
                 limit_memories=limit_memories,
+                include_private=include_private,
+                include_artifacts=include_artifacts,
             )
         except Exception as exc:
             raise MemoryServiceException(

@@ -288,9 +288,29 @@ revision:
 # Mint an MCP token for a user (looked up by email). Prints the raw token to
 # stdout ONCE — it is not recoverable from the DB afterwards.
 #   make mcp-token email=you@example.com name="Claude Desktop"
+#   make mcp-token email=admin@example.com name="trusted" scopes="mcp:read,mcp:write,mcp:read_private"
+# Note: mcp:read_private only takes effect for an admin user (admin AND scope).
 mcp-token:
-	@if [ -z "$(email)" ]; then echo "Usage: make mcp-token email=<user-email> [name=<label>]"; exit 2; fi
-	@docker compose exec -T api python -m reflections.mcp.cli mint --email "$(email)" --name "$(or $(name),CLI-minted token)"
+	@if [ -z "$(email)" ]; then echo "Usage: make mcp-token email=<user-email> [name=<label>] [scopes=<csv>]"; exit 2; fi
+	@if [ -n "$(scopes)" ]; then \
+	  scope_args=""; \
+	  for s in $$(echo "$(scopes)" | tr ',' ' '); do scope_args="$$scope_args --scope $$s"; done; \
+	  docker compose exec -T api python -m reflections.mcp.cli mint --email "$(email)" --name "$(or $(name),CLI-minted token)" $$scope_args; \
+	else \
+	  docker compose exec -T api python -m reflections.mcp.cli mint --email "$(email)" --name "$(or $(name),CLI-minted token)"; \
+	fi
+
+# Register a folder as a Reflections volume and walk it (stat-only).
+# Idempotent — running again skips unchanged files. Extraction is
+# opt-in via the policy MCP tools.
+#   make crawl-folder email=you@example.com path=/Volumes/Photos-10TB label="Photos"
+crawl-folder:
+	@if [ -z "$(email)" ] || [ -z "$(path)" ]; then echo "Usage: make crawl-folder email=<user-email> path=<absolute-path> [label=<label>] [subpath=<rel>] [max_pages=N]"; exit 2; fi
+	@docker compose exec -T api python -m reflections.artifacts.cli crawl \
+	  --email "$(email)" --path "$(path)" \
+	  $(if $(label),--label "$(label)") \
+	  $(if $(subpath),--subpath "$(subpath)") \
+	  $(if $(max_pages),--max-pages "$(max_pages)")
 
 stt-bridge:
 	poetry run python -m uvicorn reflections.stt_bridge.main:app --host 0.0.0.0 --port 9001

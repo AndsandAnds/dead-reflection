@@ -8,6 +8,10 @@ from uuid import UUID
 import sqlalchemy as sa  # type: ignore[import-not-found]
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
+from reflections.artifacts.repository import (
+    artifact_entity_links_table,
+    artifacts_table,
+)
 from reflections.commons.ids import uuid7_uuid
 from reflections.entities.repository import (
     entities_table,
@@ -416,20 +420,32 @@ class MemoryRepository:
         date_to: datetime | None = None,
         entity_id: UUID | None = None,
         limit_memories: int = 500,
+        include_private: bool = True,
+        include_artifacts: bool = True,
     ) -> tuple[
         list[MemoryRow],
         list[LinkedEntityRow],
         list[tuple[UUID, UUID, str]],
+        list[dict[str, Any]],  # artifact rows (id, kind, label, mtime, mime)
+        list[tuple[UUID, UUID]],  # memory→artifact edges (mem_id, art_id)
+        list[tuple[UUID, UUID, str]],  # artifact→entity edges
     ]:
         """
-        Returns (memories, entities, edges) for the graph view.
+        Returns (memories, entities, mem_ent_edges, artifacts,
+        mem_art_edges, art_ent_edges) for the graph view.
 
         - If `entity_id` is set, restricts to memories linked to that entity.
         - Otherwise, returns memories in the date range (or all if no range).
         - Entities returned are exactly those linked to the returned memories.
-        - Edges are (memory_item_id, entity_id, relation) tuples.
+        - When `include_artifacts`, returns artifacts that EITHER are
+          referenced by a surfaced memory (memory_items.artifact_id) OR
+          have mtime in the requested date range.
+        - When `include_private` is False, private memory rows are filtered
+          out before the graph is built (admin-gated upstream).
         """
         mem_conds: list[Any] = [memory_items.c.user_id == user_id]
+        if not include_private:
+            mem_conds.append(memory_items.c.private.is_(False))
         if date_from is not None:
             mem_conds.append(memory_items.c.created_at >= date_from)
         if date_to is not None:
@@ -452,11 +468,13 @@ class MemoryRepository:
                 memory_items.c.kind,
                 memory_items.c.content,
                 memory_items.c.created_at,
+                memory_items.c.artifact_id,
             )
             .where(sa.and_(*mem_conds))
             .order_by(memory_items.c.created_at.desc())
             .limit(limit_memories)
         )
+        raw_mems = (await session.execute(mem_stmt)).all()
         mem_rows = [
             MemoryRow(
                 id=r.id,
@@ -467,45 +485,152 @@ class MemoryRepository:
                 content=r.content,
                 created_at=r.created_at,
             )
-            for r in (await session.execute(mem_stmt)).all()
+            for r in raw_mems
         ]
-        if not mem_rows:
-            return [], [], []
+        # Track memory→artifact links so we can draw edges later.
+        mem_art_edges: list[tuple[UUID, UUID]] = [
+            (r.id, r.artifact_id)
+            for r in raw_mems
+            if r.artifact_id is not None
+        ]
 
-        mem_ids = [m.id for m in mem_rows]
-        edge_stmt = (
-            sa.select(
+        # --- entities linked to surfaced memories ---
+        ent_rows: list[LinkedEntityRow] = []
+        edges: list[tuple[UUID, UUID, str]] = []
+        if mem_rows:
+            mem_ids = [m.id for m in mem_rows]
+            edge_stmt = sa.select(
                 memory_entity_links_table.c.memory_item_id,
                 memory_entity_links_table.c.entity_id,
                 memory_entity_links_table.c.relation,
+            ).where(
+                memory_entity_links_table.c.memory_item_id.in_(mem_ids)
             )
-            .where(memory_entity_links_table.c.memory_item_id.in_(mem_ids))
-        )
-        edges = [
-            (r.memory_item_id, r.entity_id, r.relation or "")
-            for r in (await session.execute(edge_stmt)).all()
-        ]
-        if not edges:
-            return mem_rows, [], []
-
-        entity_ids = list({e[1] for e in edges})
-        ent_stmt = (
-            sa.select(
-                entities_table.c.id,
-                entities_table.c.kind,
-                entities_table.c.name,
-                entities_table.c.slug,
-            )
-            .where(
-                sa.and_(
-                    entities_table.c.user_id == user_id,
-                    entities_table.c.id.in_(entity_ids),
+            edges = [
+                (r.memory_item_id, r.entity_id, r.relation or "")
+                for r in (await session.execute(edge_stmt)).all()
+            ]
+            if edges:
+                entity_ids = list({e[1] for e in edges})
+                ent_stmt = (
+                    sa.select(
+                        entities_table.c.id,
+                        entities_table.c.kind,
+                        entities_table.c.name,
+                        entities_table.c.slug,
+                    )
+                    .where(
+                        sa.and_(
+                            entities_table.c.user_id == user_id,
+                            entities_table.c.id.in_(entity_ids),
+                        )
+                    )
+                    .order_by(entities_table.c.kind, entities_table.c.name)
                 )
+                ent_rows = [
+                    LinkedEntityRow(
+                        id=r.id, kind=r.kind, name=r.name, slug=r.slug
+                    )
+                    for r in (await session.execute(ent_stmt)).all()
+                ]
+
+        # --- artifacts ---
+        artifact_rows: list[dict[str, Any]] = []
+        art_ent_edges: list[tuple[UUID, UUID, str]] = []
+        if include_artifacts:
+            # Union: artifacts referenced by surfaced memories OR with
+            # mtime in the requested date range. Either set may be empty.
+            art_conds_outer: list[Any] = [
+                artifacts_table.c.user_id == user_id
+            ]
+            referenced_ids = list({a for (_m, a) in mem_art_edges})
+            date_or_ref: list[Any] = []
+            if referenced_ids:
+                date_or_ref.append(artifacts_table.c.id.in_(referenced_ids))
+            range_conds: list[Any] = []
+            if date_from is not None:
+                range_conds.append(artifacts_table.c.mtime >= date_from)
+            if date_to is not None:
+                range_conds.append(artifacts_table.c.mtime <= date_to)
+            if range_conds:
+                date_or_ref.append(sa.and_(*range_conds))
+            if date_or_ref:
+                art_conds_outer.append(sa.or_(*date_or_ref))
+            else:
+                # No date range and no memory references → don't load every
+                # artifact in the user's catalog (could be millions).
+                art_conds_outer.append(sa.false())
+
+            art_stmt = (
+                sa.select(
+                    artifacts_table.c.id,
+                    artifacts_table.c.kind,
+                    artifacts_table.c.relative_path,
+                    artifacts_table.c.mtime,
+                    artifacts_table.c.mime,
+                )
+                .where(sa.and_(*art_conds_outer))
+                .order_by(artifacts_table.c.mtime.desc())
+                .limit(2000)
             )
-            .order_by(entities_table.c.kind, entities_table.c.name)
+            for r in (await session.execute(art_stmt)).all():
+                artifact_rows.append(
+                    {
+                        "id": r.id,
+                        "kind": r.kind,
+                        "label": r.relative_path.rsplit("/", 1)[-1],
+                        "relative_path": r.relative_path,
+                        "mtime": r.mtime,
+                        "mime": r.mime,
+                    }
+                )
+
+            if artifact_rows:
+                art_ids = [a["id"] for a in artifact_rows]
+                ael_stmt = sa.select(
+                    artifact_entity_links_table.c.artifact_id,
+                    artifact_entity_links_table.c.entity_id,
+                    artifact_entity_links_table.c.relation,
+                ).where(
+                    artifact_entity_links_table.c.artifact_id.in_(art_ids)
+                )
+                art_ent_edges = [
+                    (r.artifact_id, r.entity_id, r.relation or "")
+                    for r in (await session.execute(ael_stmt)).all()
+                ]
+                # Surface any newly-referenced entities (from artifact
+                # links) that weren't already loaded via memory edges.
+                already = {e.id for e in ent_rows}
+                new_eids = list(
+                    {e[1] for e in art_ent_edges} - already
+                )
+                if new_eids:
+                    extra_stmt = (
+                        sa.select(
+                            entities_table.c.id,
+                            entities_table.c.kind,
+                            entities_table.c.name,
+                            entities_table.c.slug,
+                        )
+                        .where(
+                            sa.and_(
+                                entities_table.c.user_id == user_id,
+                                entities_table.c.id.in_(new_eids),
+                            )
+                        )
+                    )
+                    for r in (await session.execute(extra_stmt)).all():
+                        ent_rows.append(
+                            LinkedEntityRow(
+                                id=r.id, kind=r.kind, name=r.name, slug=r.slug
+                            )
+                        )
+
+        return (
+            mem_rows,
+            ent_rows,
+            edges,
+            artifact_rows,
+            mem_art_edges,
+            art_ent_edges,
         )
-        ent_rows = [
-            LinkedEntityRow(id=r.id, kind=r.kind, name=r.name, slug=r.slug)
-            for r in (await session.execute(ent_stmt)).all()
-        ]
-        return mem_rows, ent_rows, edges

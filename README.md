@@ -198,23 +198,56 @@ The FastAPI app exposes a [Model Context Protocol](https://modelcontextprotocol.
 server at `http://localhost:8000/mcp/` (Streamable HTTP transport). It is
 authenticated with per-user bearer tokens stored in the `mcp_tokens` table.
 
-Tools available in v1 (curated, not auto-generated from REST routes):
+Tools available today (curated, not auto-generated from REST routes):
 
 - **Memory**: `record_memory`, `recall_memory`, `inspect_memories`, `delete_memory`
 - **Entities** (people / places / events / topics): `list_entities`,
   `get_entity`, `add_entity`, `update_entity`, `delete_entity`,
   `merge_entities`, `list_entity_memories`, `link_memory_to_entity`
+- **Calendar** (Apple Calendar via host bridge): `list_calendars`,
+  `list_calendar_events`, `create_calendar_event`,
+  `update_calendar_event`, `delete_calendar_event`
+- **Vault** (markdown export / import): `export_vault`, `import_vault`
+- **Artifacts** (in-place catalog of external drives): `register_volume`,
+  `list_volumes`, `catalog_volume`, `list_artifacts`,
+  `set_extraction_policy`, `apply_extraction_policies`,
+  `extract_artifact`, `delete_artifact`
+- **Web** (admin only, audited): `internet_search`
 
 ### Mint a token
 
+Two scope flavors:
+
 ```bash
+# Default — read + write public content; no access to "private" rows.
 make mcp-token email=you@example.com name="Claude Desktop"
+
+# Trusted client — also includes private content.
+# Note: mcp:read_private only takes effect for an ADMIN user.
+# A non-admin with the scope still gets the public view.
+make mcp-token email=admin@example.com name="trusted" \
+  scopes="mcp:read,mcp:write,mcp:read_private"
 ```
 
 The raw token (looks like `ref_mcp_…`) is printed once to **stdout** and is
 not recoverable from the DB afterwards — store it immediately. Token metadata
 can be listed via `GET /mcp/tokens` (authenticated session cookie required)
 and revoked via `DELETE /mcp/tokens/{id}`.
+
+### Privacy model
+
+Memory rows can be flagged `private = true`. The MCP `recall_memory` and
+`inspect_memories` tools exclude private rows unless **both** conditions
+hold for the caller's token:
+
+1. The token carries the `mcp:read_private` scope (opt-in at mint time).
+2. The user the token belongs to is currently `is_admin = true`.
+
+Admin status is re-checked at token verification (every MCP request), so
+demoting a user immediately revokes private-content access from every
+token they hold — no need to revoke each token individually. The web UI
+(session-cookie auth) always shows the signed-in user their own private
+content; the privacy gate only governs the MCP recall surface.
 
 ### Wire into Claude Desktop
 
@@ -479,6 +512,122 @@ likely a Rust `notify-rs` daemon.
 # Export, edit a person's description in Obsidian, import back.
 make mcp-token email=you@example.com name="vault-roundtrip"  # -> $TOK
 # (use the MCP token via Claude Desktop, LM Studio, or curl)
+```
+
+## Artifact catalog (in-place file indexing)
+
+Reflections can catalog the files on an external drive (or any host
+folder) **without moving them** and **without auto-processing
+contents**. The bytes stay where they are; Postgres only stores stat
+metadata (path, mtime, size, mime, lazy sha256) until you explicitly
+opt a folder in for extraction.
+
+The catalog runs as a **host bridge** on `:9005` (not in Docker) so it
+can see drives the user plugs in after `docker compose up`. Same pattern
+as the calendar / STT / TTS bridges.
+
+### One-time setup
+
+```bash
+# 1. Run the bridge as a proper .app so macOS can grant Full Disk Access.
+make catalog-bridge-app
+open apps/macos/ReflectionsCatalogBridge.app
+
+# 2. Grant Full Disk Access in System Settings → Privacy & Security →
+#    Full Disk Access → toggle on "Reflections Catalog Bridge".
+
+# 3. Tell the api container where the bridge listens (add to .env):
+CATALOG_BRIDGE_URL=http://host.docker.internal:9005
+
+# 4. Re-create the api so it picks up the env var, then start the bridge in
+#    the background (joins `bridges-up` automatically when CATALOG_BRIDGE_URL
+#    is set).
+docker compose up -d api
+make catalog-bridge-bg
+```
+
+### Index a folder (one command)
+
+```bash
+make crawl-folder email=you@example.com path=/Volumes/Photos-10TB \
+                  label="Photos Archive"
+```
+
+This registers the folder as a "volume" (idempotent — drops a
+`.reflections-volume.json` marker so it's identifiable across
+remounts), then walks it stat-only. Output:
+
+```
+  Volume: Photos Archive (id=…)
+  fingerprint=b2c3-…, volume_uuid=ABCD-1234
+
+  Walking /Volumes/Photos-10TB...
+
+  Files seen:        12384
+  Newly added:       12384
+  Updated (changed): 0
+  Unchanged:         0
+  Pages fetched:     3
+  Elapsed:           5.21s
+```
+
+Re-running is safe — unchanged files are no-ops, real changes mark
+already-extracted artifacts `stale` so the next extraction pass
+re-runs them.
+
+### Extracting content (text from PDF / image / audio / video)
+
+Extraction is **opt-in per (volume, glob, mime, kind)**:
+
+```bash
+# In Claude Desktop with an MCP token that has mcp:read + mcp:write:
+#   "Set a policy on volume <id>: extract all PDFs as public, and
+#   .heic images as private."
+#   "Apply extraction policies on that volume."
+```
+
+Or via curl using the `set_extraction_policy` and
+`apply_extraction_policies` MCP tools. Each rule has an `action`:
+
+- `extract` — derive text, store memory chunks publicly
+- `extract_private` — derive text, store chunks with `private=true`
+  (only callers who are admin AND have the `mcp:read_private` scope
+  can recall them; web UI shows them to the signed-in user always)
+- `ignore` — skip (default for anything that matches no rule)
+
+Extractors today:
+
+| Kind | Pipeline | Notes |
+|---|---|---|
+| `pdf` | `pypdf` | One chunk per non-empty page; locator `{page, total_pages}` |
+| `image` | EXIF via Pillow + caption via Ollama `qwen3-vl` | EXIF (incl. GPS) → artifact attributes; caption → chunk text |
+| `audio` | STT bridge (whisper.cpp) | Transcript chunked at sentence boundaries |
+| `video` | `ffmpeg` → audio path | Strips audio to 16 kHz mono PCM, then transcribes |
+
+After extraction, the existing entity-extraction pass runs over the
+new chunks for free — so a PDF mentioning Sarah and Brooklyn auto-
+populates those entities and links them to the artifact.
+
+### What lands in the graph
+
+`/memory/graph` includes artifact nodes by default (toggle with
+`?include_artifacts=false`). Edges:
+
+- `memory:<id>` → `artifact:<id>` (relation `from_artifact`) when a
+  chunk was derived from an artifact
+- `artifact:<id>` → `entity:<id>` (relation `mentions`) from
+  `artifact_entity_links`
+
+Artifact node kinds in the palette: `artifact_pdf` (violet),
+`artifact_image` (sky), `artifact_audio` (amber), `artifact_video`
+(red), `artifact_other` (slate).
+
+### Stopping / restarting
+
+```bash
+make bridges-status   # show what's up
+make bridges-down     # stop STT + TTS + Calendar + Catalog
+make bridges-up       # start everything CATALOG_BRIDGE_URL is set
 ```
 
 ## Tests

@@ -41,9 +41,8 @@ class _CapturingSvc:
         self.linked_lookups: list[list[UUID]] = []
         self.update_calls: list[tuple[UUID, str]] = []
         self.update_result_row: MemoryRow | None = None
-        self.graph_returns: tuple[
-            list[MemoryRow], list[LinkedEntityRow], list[tuple]
-        ] = ([], [], [])
+        # 8c extended the graph shape to include artifacts + edges.
+        self.graph_returns: tuple = ([], [], [], [], [], [])
 
     async def search(self, _session, **kwargs):
         self.search_kwargs = kwargs
@@ -179,6 +178,9 @@ async def test_graph_shapes_prefixed_node_ids(
             LinkedEntityRow(id=place_id, kind="place", name="Verve", slug="verve"),
         ],
         [(m1.id, sarah_id, ""), (m1.id, place_id, "")],
+        [],  # artifacts
+        [],  # mem→artifact edges
+        [],  # artifact→entity edges
     )
     memory_app.dependency_overrides[memory_api.get_memory_service] = lambda: svc
 

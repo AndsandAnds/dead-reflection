@@ -6,6 +6,7 @@ from uuid import UUID
 from fastmcp.server.auth.auth import AccessToken, TokenVerifier  # type: ignore[import-not-found]
 from fastmcp.server.dependencies import get_access_token  # type: ignore[import-not-found]
 
+from reflections.auth.repository import AuthRepository
 from reflections.commons.logging import logger
 from reflections.core.db import database_manager
 from reflections.mcp.service import McpService
@@ -14,13 +15,18 @@ from reflections.mcp.service import McpService
 class ReflectionsTokenVerifier(TokenVerifier):
     """
     Verifies an MCP bearer token against the `mcp_tokens` table and stamps the
-    resulting AccessToken with the user_id in `client_id`. Tool implementations
-    read it back via `current_user_id()`.
+    resulting AccessToken with the user_id in `client_id`, the token's scopes,
+    and the user's current `is_admin` flag (re-checked every verify so a
+    demoted user immediately loses elevated tool access).
+
+    Tool implementations read these back via `current_user_id()`,
+    `has_scope(...)`, `current_user_is_admin()`, and `can_read_private()`.
     """
 
     def __init__(self, service: McpService | None = None) -> None:
         super().__init__(required_scopes=None)
         self._service = service or McpService.default()
+        self._auth = AuthRepository()
 
     async def verify_token(self, token: str) -> AccessToken | None:
         await database_manager.initialize()
@@ -29,6 +35,12 @@ class ReflectionsTokenVerifier(TokenVerifier):
                 pair = await self._service.verify(
                     session, raw_token=token
                 )
+                is_admin = False
+                if pair is not None:
+                    user = await self._auth.get_user_by_id(
+                        session, user_id=pair[0]
+                    )
+                    is_admin = bool(getattr(user, "is_admin", False))
         except Exception as exc:
             logger.warning("mcp_token_verify_error: %s", exc)
             return None
@@ -45,7 +57,11 @@ class ReflectionsTokenVerifier(TokenVerifier):
                     dt.datetime.now(dt.UTC) + dt.timedelta(days=365)
                 ).timestamp()
             ),
-            claims={"user_id": str(user_id), "scopes": list(scopes)},
+            claims={
+                "user_id": str(user_id),
+                "scopes": list(scopes),
+                "is_admin": is_admin,
+            },
         )
 
 
@@ -71,3 +87,27 @@ def current_scopes() -> set[str]:
 
 def has_scope(scope: str) -> bool:
     return scope in current_scopes()
+
+
+def current_user_is_admin() -> bool:
+    """Read the admin flag stamped on the token at verify time."""
+    token = get_access_token()
+    if token is None:
+        return False
+    claims = token.claims or {}
+    return bool(claims.get("is_admin"))
+
+
+def can_read_private() -> bool:
+    """
+    Gate for surfacing memory_items.private content via MCP tools.
+
+    Two conditions must hold:
+      1. The token carries the `mcp:read_private` scope (opt-in at mint).
+      2. The user the token belongs to is currently an admin.
+
+    The second check is fresh per-verify, so demoting a user immediately
+    revokes private-content access from every token they hold without
+    needing to revoke each token individually.
+    """
+    return has_scope("mcp:read_private") and current_user_is_admin()

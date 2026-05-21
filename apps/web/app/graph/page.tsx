@@ -35,6 +35,13 @@ const COLOR_BY_KIND: Record<string, string> = {
   entity_place: "#14b8a6",  // teal
   entity_event: "#f97316",  // orange
   entity_topic: "#eab308",  // marigold
+  // Artifacts — distinct family of muted blues/slates so files read as
+  // "leaf nodes" against the colorful entity/memory nodes.
+  artifact_pdf: "#7c3aed",   // violet — paper docs
+  artifact_image: "#0ea5e9", // sky — photos
+  artifact_audio: "#a16207", // amber-dark — recordings
+  artifact_video: "#dc2626", // red — video
+  artifact_other: "#475569", // slate — everything else
 };
 
 function colorFor(kind: string): string {
@@ -339,6 +346,11 @@ function Legend() {
     ["entity_topic", "Topic"],
     ["memory_card", "Memory card"],
     ["memory_chunk", "Memory chunk"],
+    ["artifact_pdf", "PDF"],
+    ["artifact_image", "Image"],
+    ["artifact_audio", "Audio"],
+    ["artifact_video", "Video"],
+    ["artifact_other", "Other file"],
   ];
   return (
     <div

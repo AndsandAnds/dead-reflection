@@ -9,11 +9,9 @@ from uuid import UUID
 from pydantic import Field
 
 from reflections.core.db import database_manager
-from reflections.mcp.auth import current_user_id, has_scope
+from reflections.mcp.auth import can_read_private, current_user_id
 from reflections.memory.schemas import Turn
 from reflections.memory.service import MemoryService
-
-SCOPE_READ_PRIVATE = "mcp:read_private"
 
 _memory_service: MemoryService | None = None
 
@@ -104,7 +102,9 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
         searches both cards and chunks.
         """
         user_id = current_user_id()
-        include_private = has_scope(SCOPE_READ_PRIVATE)
+        # Admin + mcp:read_private scope are BOTH required; a non-admin
+        # with the scope still gets the public-only view.
+        include_private = can_read_private()
         avatar_uuid = UUID(avatar_id) if avatar_id else None
         svc = _service()
         await database_manager.initialize()
@@ -150,7 +150,9 @@ def register(mcp) -> None:  # type: ignore[no-untyped-def]
         it never see chunks flagged `private`.
         """
         user_id = current_user_id()
-        include_private = has_scope(SCOPE_READ_PRIVATE)
+        # Admin + mcp:read_private scope are BOTH required; a non-admin
+        # with the scope still gets the public-only view.
+        include_private = can_read_private()
         avatar_uuid = UUID(avatar_id) if avatar_id else None
         svc = _service()
         await database_manager.initialize()
