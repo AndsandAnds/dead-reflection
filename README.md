@@ -266,6 +266,54 @@ curl -s -X POST http://localhost:8000/mcp/ \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
+## Internet egress (admin only)
+
+Reflections is local-first. Outbound HTTP calls on behalf of a user are
+**denied** by default and only allowed for users where `is_admin=true`. Every
+attempt — successful, denied, or errored — is recorded in
+`outbound_audit_log` for review.
+
+The single sanctioned outbound capability today is the MCP tool
+`internet_search`, which scrapes [DuckDuckGo Lite](https://lite.duckduckgo.com/lite/)
+(no API key, no JavaScript, no telemetry). All outbound traffic is mediated
+by [`OutboundService`](src/reflections/outbound/service.py), which:
+
+1. Refuses non-admin calls before any network I/O happens.
+2. Times every call and records the URL, HTTP status, outcome, and any error
+   to `outbound_audit_log`.
+3. Optionally routes through `EGRESS_PROXY_URL` (a future Squid/tinyproxy/
+   etc.) when configured — this is the hook for a hardened network-level
+   isolation layer.
+
+### Promoting yourself to admin
+
+The first signup is auto-promoted. For existing DBs:
+
+```bash
+docker compose exec db psql -U ref -d reflections \
+  -c "UPDATE users SET is_admin=true WHERE email='you@example.com';"
+```
+
+### Reviewing the audit log
+
+Admin-only, supports filters by user and outcome:
+
+```bash
+# you'll need an admin session cookie from /auth/login
+curl -b your_cookie_jar.txt 'http://localhost:8000/admin/outbound-audit-log?limit=50&outcome=denied'
+```
+
+### Deferred (v2)
+
+- **Voice integration**: the voice agent loop doesn't yet have PydanticAI
+  tool wiring, so `internet_search` is currently only available via MCP
+  (Claude Desktop / LM Studio). Voice "go online" toggle planned next.
+- **Network-level isolation**: putting `api` on a Docker `internal: true`
+  network is complicated by the STT/TTS/calendar bridges that live on
+  `host.docker.internal`. A v2 setup would add a hardened egress proxy
+  container and tighten container egress via iptables, with bridges either
+  whitelisted or moved into Docker.
+
 ## Tests
 Run everything:
 

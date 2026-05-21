@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     MEMORY_AUTO_INGEST: bool = True
     MEMORY_CHUNK_TURN_WINDOW: int = 2
 
+    # Outbound egress (admin-only): optional HTTP proxy URL all outbound
+    # calls route through when set. Leave unset for direct egress.
+    EGRESS_PROXY_URL: str | None = None
+
     # Auth (HTTP-only cookie session)
     AUTH_COOKIE_NAME: str
     AUTH_COOKIE_SECURE: bool
