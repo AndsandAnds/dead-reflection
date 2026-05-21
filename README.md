@@ -340,36 +340,48 @@ make calendar-bridge-bg       # background (pid in ./run, logs in ./run/)
 make bridges-up
 ```
 
-### One-time macOS permission grant
+### One-time macOS permission grant (use the .app launcher)
 
-EventKit requires user consent. **First-time setup needs a manual step
-because a CLI-launched Python process doesn't carry an Info.plist that
-macOS recognizes as a Calendar-aware app.** When the bridge calls
-`requestFullAccessToEventsWithCompletion_`, macOS silently denies and your
-terminal won't show the dialog.
-
-The fix is to grant access via System Settings:
-
-1. **System Settings → Privacy & Security → Calendars**
-2. Toggle on the Python binary running the bridge — typically your
-   Poetry venv's `python`, your `pyenv`-managed Python, or the Terminal/
-   iTerm/Cursor app that launched the bridge. On macOS 14+ choose
-   **Full Access** for both read and write.
-3. Restart the bridge:
-   ```bash
-   make bridges-down && make bridges-up
-   ```
-4. Verify:
-   ```bash
-   curl -s http://127.0.0.1:9004/health | jq .
-   # → {"status":"ok","auth_status":"fullAccess","auth_status_code":5}
-   ```
-
-If you don't see Python listed at all under Privacy & Security → Calendars,
-trigger the prompt-registration first by calling `POST /authorize` once:
+EventKit requires user consent. A plain `python -m uvicorn ...` process
+has no Info.plist that macOS recognizes for TCC, so the permission
+prompt is silently denied AND the process never appears in System
+Settings → Privacy & Security → Calendars. The fix is a minimal `.app`
+bundle that declares `NSCalendarsFullAccessUsageDescription`.
 
 ```bash
+# Build the bundle (idempotent; rebuild any time).
+make calendar-bridge-app
+
+# Launch it — this is the moment macOS prompts you.
+open apps/macos/ReflectionsCalendarBridge.app
+
+# Trigger the EventKit request to show the dialog.
 curl -X POST http://127.0.0.1:9004/authorize
+# → click Allow on the macOS prompt
+
+# Verify.
+curl -s http://127.0.0.1:9004/health | jq .
+# → {"status":"ok","auth_status":"authorized","auth_status_code":3}
+#   (or "fullAccess"/5 on macOS 14+)
+```
+
+The bundle re-execs `poetry run python -m uvicorn ...` from your
+project root, so all existing deps work. Logs land in
+`run/calendar-bridge.app.log`. The bundle is gitignored — the build
+is reproducible via `make calendar-bridge-app`.
+
+`make calendar-bridge` (terminal foreground) also works once
+permission has been granted to the bundle; TCC keys the entry by
+bundle id, so System Settings → Privacy & Security → Calendars shows
+a single "Reflections Calendar Bridge" entry instead of a confusing
+"Python".
+
+To stop:
+
+```bash
+make bridges-down   # also stops STT/TTS if running
+# or:
+pkill -f reflections.calendar_bridge
 ```
 
 Even if it returns `granted:false`, macOS now knows about your process and

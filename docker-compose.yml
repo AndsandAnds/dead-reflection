@@ -45,6 +45,12 @@ services:
       STT_TIMEOUT_S: ${STT_TIMEOUT_S:-120}
       TTS_BASE_URL: ${TTS_BASE_URL:-}
       TTS_TIMEOUT_S: ${TTS_TIMEOUT_S:-30}
+      # Host-run macOS calendar bridge (EventKit). Same pattern as STT/TTS.
+      CALENDAR_BRIDGE_URL: ${CALENDAR_BRIDGE_URL:-}
+      CALENDAR_BRIDGE_SECRET: ${CALENDAR_BRIDGE_SECRET:-}
+      CALENDAR_BRIDGE_TIMEOUT_S: ${CALENDAR_BRIDGE_TIMEOUT_S:-10}
+      # Optional egress proxy for admin-only outbound HTTP.
+      EGRESS_PROXY_URL: ${EGRESS_PROXY_URL:-}
       MEMORY_AUTO_INGEST: ${MEMORY_AUTO_INGEST:-true}
       MEMORY_CHUNK_TURN_WINDOW: ${MEMORY_CHUNK_TURN_WINDOW:-2}
       # Avatar image generation (Diffusers SDXL)

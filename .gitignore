@@ -38,3 +38,6 @@ pnpm-debug.log*
 run/
 *.log
 
+
+# Generated macOS .app bundles (built via 'make calendar-bridge-app')
+apps/macos/*.app/

@@ -1,6 +1,6 @@
 .PHONY: help up down build logs ps restart clean db-shell api-shell ui-shell test test-backend test-frontend precommit-install precommit-run
 .PHONY: migrate revision
-.PHONY: stt-bridge tts-bridge calendar-bridge
+.PHONY: stt-bridge tts-bridge calendar-bridge calendar-bridge-app
 .PHONY: bridges-up bridges-down bridges-status stt-bridge-bg tts-bridge-bg calendar-bridge-bg
 .PHONY: db-bench db-bench-worker db-bench-io-uring
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
@@ -296,6 +296,15 @@ tts-bridge:
 calendar-bridge:
 	poetry run python -m uvicorn reflections.calendar_bridge.main:app --host 127.0.0.1 --port 9004
 
+# Build (or rebuild) a minimal macOS .app wrapper around the calendar
+# bridge so EventKit can prompt for permission. Plain `python -m uvicorn`
+# has no Info.plist that macOS recognizes for TCC, so the prompt is
+# silently denied and Python never even appears in System Settings →
+# Privacy & Security → Calendars. Open the resulting bundle once with
+# `open ...` to trigger the system prompt with our usage description.
+calendar-bridge-app:
+	@PROJECT_ROOT="$(CURDIR)" sh scripts/build-calendar-bridge-app.sh
+
 stt-bridge-bg:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
@@ -331,8 +340,9 @@ tts-bridge-bg:
 calendar-bridge-bg:
 	@mkdir -p "$(RUN_DIR)"
 	@set -e; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 	if [ -z "$${CALENDAR_BRIDGE_URL:-}" ]; then \
-	  echo "calendar-bridge: not starting (CALENDAR_BRIDGE_URL not set)"; \
+	  echo "calendar-bridge: not starting (CALENDAR_BRIDGE_URL not set in env or .env)"; \
 	  exit 0; \
 	fi; \
 	if [ -f "$(CAL_PID)" ] && kill -0 "$$(cat "$(CAL_PID)")" 2>/dev/null; then \
