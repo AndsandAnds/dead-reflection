@@ -7,6 +7,8 @@ from uuid import UUID
 from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
+from reflections.commons.logging import logger as _logger
+from reflections.entities.service import EntitiesService
 from reflections.memory.exceptions import (
     MemoryServiceException,
     MemoryUnprocessableException,
@@ -90,12 +92,17 @@ def extract_memory_cards_heuristic(turns: list[Turn]) -> list[str]:
 class MemoryService:
     repository: MemoryRepository
     embedder: SentenceTransformer
+    entities: EntitiesService | None = None
 
     @classmethod
     def create(cls) -> MemoryService:
         # normalize_embeddings=True gives us cosine==dot if vectors are normalized
         embedder = SentenceTransformer(EMBEDDING_MODEL_ID)
-        return cls(repository=MemoryRepository(), embedder=embedder)
+        return cls(
+            repository=MemoryRepository(),
+            embedder=embedder,
+            entities=EntitiesService.create(),
+        )
 
     def embed_text(self, text: str) -> list[float]:
         vec = self.embedder.encode([text], normalize_embeddings=True)[0].tolist()
@@ -141,25 +148,46 @@ class MemoryService:
                 )
 
             # Raw chunks (always avatar-scoped if avatar_id exists, else user-scoped)
+            # Track chunk_id -> chunk_text for later entity extraction.
+            chunk_id_to_text: list[tuple[UUID, str]] = []
             for ch in raw_chunks:
                 scope = "avatar" if avatar_id else "user"
                 emb = self.embed_text(ch)
-                stored_ids.append(
-                    await self.repository.insert_item(
-                        session,
-                        user_id=user_id,
-                        avatar_id=avatar_id,
-                        scope=scope,
-                        kind="chunk",
-                        content=ch,
-                        embedding=emb,
-                    )
+                new_id = await self.repository.insert_item(
+                    session,
+                    user_id=user_id,
+                    avatar_id=avatar_id,
+                    scope=scope,
+                    kind="chunk",
+                    content=ch,
+                    embedding=emb,
                 )
+                stored_ids.append(new_id)
+                chunk_id_to_text.append((new_id, ch))
 
             await session.commit()
         except Exception as exc:
             await session.rollback()
             raise MemoryServiceException("Failed to ingest memory", str(exc)) from exc
+
+        # Best-effort entity extraction. Failures here must never break ingest.
+        if self.entities is not None and chunk_id_to_text:
+            for chunk_id, chunk_text in chunk_id_to_text:
+                try:
+                    await self.entities.upsert_and_link(
+                        session,
+                        user_id=user_id,
+                        memory_item_ids=[chunk_id],
+                        chunk_text=chunk_text,
+                    )
+                    await session.commit()
+                except Exception as exc:
+                    await session.rollback()
+                    _logger.warning(
+                        "entity_extraction_failed chunk_id=%s err=%s",
+                        chunk_id,
+                        exc,
+                    )
 
         return stored_ids, len(cards), len(raw_chunks)
 

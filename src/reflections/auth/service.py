@@ -47,8 +47,16 @@ class AuthService:
 
         user_id = uuid7_uuid()
         pw_hash = hash_password(password)
+        # First user to sign up is bootstrapped as admin. Subsequent users are
+        # promoted manually by an existing admin (no API yet; do it in psql).
+        is_first_user = (await self.repo.count_users(session)) == 0
         user = await self.repo.insert_user(
-            session, user_id=user_id, email=email, name=name, password_hash=pw_hash
+            session,
+            user_id=user_id,
+            email=email,
+            name=name,
+            password_hash=pw_hash,
+            is_admin=is_first_user,
         )
 
         token = new_session_token()

@@ -22,6 +22,7 @@ dependencies = [
     "pydantic-settings>=2.6.0,<3.0.0",
     "pgvector>=0.3.6,<0.4.0",
     "uuid6>=2024.7.10",
+    "fastmcp>=2.14.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

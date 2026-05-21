@@ -6,10 +6,19 @@ from fastapi.middleware.cors import CORSMiddleware  # type: ignore[import-not-fo
 from reflections.api.exceptions import configure_global_exception_handlers
 from reflections.api.routers import configure_routers
 from reflections.core.settings import settings
+from reflections.mcp.server import mcp_http_app
 
 
 def build_app() -> FastAPI:
-    app = FastAPI(title=settings.API_TITLE, version=settings.API_VERSION)
+    # The MCP sub-app owns its own session/task-group lifespan; FastAPI must
+    # adopt it so the MCP machinery starts/stops with the parent app.
+    mcp_app = mcp_http_app()
+
+    app = FastAPI(
+        title=settings.API_TITLE,
+        version=settings.API_VERSION,
+        lifespan=mcp_app.router.lifespan_context,
+    )
     # CORS: be forgiving about localhost vs 127.0.0.1, since devs commonly use either.
     raw_origins = [o.strip() for o in str(settings.CORS_ORIGINS).split(",") if o.strip()]
     origins: list[str] = []
@@ -32,6 +41,9 @@ def build_app() -> FastAPI:
         )
     configure_routers(app)
     configure_global_exception_handlers(app)
+    # Mount the FastMCP HTTP transport. Tools share the same Python process,
+    # DB engine, and settings as the rest of the app.
+    app.mount("/mcp", mcp_app)
     return app
 
 

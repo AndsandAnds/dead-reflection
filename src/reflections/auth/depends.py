@@ -42,3 +42,16 @@ async def current_user_required(
     return user
 
 
+async def current_admin_required(
+    user=Depends(current_user_required),
+):
+    from fastapi import HTTPException  # type: ignore[import-not-found]
+    from starlette import status  # type: ignore[import-not-found]
+
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required"
+        )
+    return user
+
+

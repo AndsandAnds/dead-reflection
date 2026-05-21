@@ -80,6 +80,24 @@ export function LuminaTopBar({ user }: { user: AuthUser }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {user.is_admin ? (
+            <span
+              title="Admin user — has access to internet tools"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: 0.4,
+                textTransform: "uppercase",
+                padding: "3px 7px",
+                borderRadius: 999,
+                color: "white",
+                background:
+                  "linear-gradient(135deg, rgba(99,102,241,1), rgba(236,72,153,1))",
+              }}
+            >
+              Admin
+            </span>
+          ) : null}
           <div style={{ fontSize: 13, color: "#6b7280" }}>{user.name}</div>
           <button
             onClick={() => void doLogout()}

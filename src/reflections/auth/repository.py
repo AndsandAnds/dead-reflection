@@ -24,6 +24,11 @@ class AuthRepository:
         res = await session.execute(stmt)
         return res.scalar_one_or_none()
 
+    async def count_users(self, session: AsyncSession) -> int:
+        stmt = sa.select(sa.func.count()).select_from(User)
+        res = await session.execute(stmt)
+        return int(res.scalar_one() or 0)
+
     async def insert_user(
         self,
         session: AsyncSession,
@@ -32,9 +37,14 @@ class AuthRepository:
         email: str,
         name: str,
         password_hash: str,
+        is_admin: bool = False,
     ) -> User:
         user = User(
-            id=user_id, email=email.lower(), name=name.strip(), password_hash=password_hash
+            id=user_id,
+            email=email.lower(),
+            name=name.strip(),
+            password_hash=password_hash,
+            is_admin=is_admin,
         )
         session.add(user)
         await session.flush()

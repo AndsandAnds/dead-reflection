@@ -192,6 +192,80 @@ Stop it:
 make down
 ```
 
+## MCP server (Claude Desktop, local LLMs)
+
+The FastAPI app exposes a [Model Context Protocol](https://modelcontextprotocol.io)
+server at `http://localhost:8000/mcp/` (Streamable HTTP transport). It is
+authenticated with per-user bearer tokens stored in the `mcp_tokens` table.
+
+Tools available in v1 (curated, not auto-generated from REST routes):
+
+- **Memory**: `record_memory`, `recall_memory`, `inspect_memories`, `delete_memory`
+- **Entities** (people / places / events / topics): `list_entities`,
+  `get_entity`, `add_entity`, `update_entity`, `delete_entity`,
+  `merge_entities`, `list_entity_memories`, `link_memory_to_entity`
+
+### Mint a token
+
+```bash
+make mcp-token email=you@example.com name="Claude Desktop"
+```
+
+The raw token (looks like `ref_mcp_…`) is printed once to **stdout** and is
+not recoverable from the DB afterwards — store it immediately. Token metadata
+can be listed via `GET /mcp/tokens` (authenticated session cookie required)
+and revoked via `DELETE /mcp/tokens/{id}`.
+
+### Wire into Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "reflections": {
+      "url": "http://localhost:8000/mcp/",
+      "headers": {
+        "Authorization": "Bearer ref_mcp_PASTE_YOUR_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop; the `reflections` server should appear in the
+Settings → Developer panel and its tools (`recall_memory`, `add_entity`,
+etc.) become callable in conversations.
+
+### Wire into a local LLM (LM Studio, Ollama OpenWebUI, etc.)
+
+Any client that supports MCP over HTTP/SSE can point at the same URL with the
+same `Authorization: Bearer` header. The session-id handshake is standard MCP.
+
+### Verify by hand
+
+```bash
+TOK=$(make -s mcp-token email=you@example.com name="curl")
+SID=$(curl -si -X POST http://localhost:8000/mcp/ \
+  -H "authorization: Bearer $TOK" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
+  | awk -F': ' 'tolower($1)=="mcp-session-id"{print $2}' | tr -d '\r')
+
+curl -s -X POST http://localhost:8000/mcp/ \
+  -H "authorization: Bearer $TOK" -H "mcp-session-id: $SID" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+
+curl -s -X POST http://localhost:8000/mcp/ \
+  -H "authorization: Bearer $TOK" -H "mcp-session-id: $SID" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+```
+
 ## Tests
 Run everything:
 

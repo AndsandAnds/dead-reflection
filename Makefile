@@ -260,6 +260,13 @@ migrate:
 revision:
 	docker compose run --rm api python -m alembic revision -m "$(name)"
 
+# Mint an MCP token for a user (looked up by email). Prints the raw token to
+# stdout ONCE — it is not recoverable from the DB afterwards.
+#   make mcp-token email=you@example.com name="Claude Desktop"
+mcp-token:
+	@if [ -z "$(email)" ]; then echo "Usage: make mcp-token email=<user-email> [name=<label>]"; exit 2; fi
+	@docker compose exec -T api python -m reflections.mcp.cli mint --email "$(email)" --name "$(or $(name),CLI-minted token)"
+
 stt-bridge:
 	poetry run python -m uvicorn reflections.stt_bridge.main:app --host 0.0.0.0 --port 9001
 

@@ -18,6 +18,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(sa.Text(), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(sa.Text(), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, server_default=sa.false(), default=False
+    )
     active_avatar_id: Mapped[UUID | None] = mapped_column(
         sa.Uuid(),
         sa.ForeignKey("avatars.id", ondelete="SET NULL"),

@@ -10,6 +10,7 @@ class UserPublic(BaseModel):
     id: UUID
     email: EmailStr
     name: str
+    is_admin: bool = False
     active_avatar_id: UUID | None = None
     created_at: datetime
     last_login_at: datetime | None = None

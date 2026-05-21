@@ -219,7 +219,11 @@ class MemoryRepository:
         if kind_conds:
             conditions.append(sa.or_(*kind_conds))
 
-        order_expr = sa.text(f"embedding <#> '{emb_lit}'::vector")
+        # SQLAlchemy 2.x: a TextClause is not orderable on its own; use
+        # literal_column so we can apply .asc() and keep ASC explicit.
+        order_expr = sa.literal_column(
+            f"embedding <#> '{emb_lit}'::vector"
+        ).asc()
 
         stmt = (
             sa.select(
@@ -232,7 +236,7 @@ class MemoryRepository:
                 memory_items.c.created_at,
             )
             .where(sa.and_(*conditions))
-            .order_by(order_expr.asc())
+            .order_by(order_expr)
             .limit(top_k)
         )
 
