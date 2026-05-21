@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from reflections.entities.schemas import EntityKind
+
 Role = Literal["user", "assistant", "system"]
 
 
@@ -18,6 +20,15 @@ MemoryScope = Literal["user", "avatar"]
 MemoryKind = Literal["card", "chunk"]
 
 
+class LinkedEntity(BaseModel):
+    """Compact entity reference attached to a memory in search/inspect results."""
+
+    id: UUID
+    kind: EntityKind
+    name: str
+    slug: str
+
+
 class MemoryItem(BaseModel):
     id: UUID
     user_id: UUID
@@ -26,6 +37,7 @@ class MemoryItem(BaseModel):
     kind: MemoryKind
     content: str
     created_at: datetime
+    linked_entities: list[LinkedEntity] = Field(default_factory=list)
 
 
 class IngestMemoryRequest(BaseModel):
@@ -51,6 +63,10 @@ class SearchMemoryRequest(BaseModel):
     include_avatar_scope: bool = True
     include_cards: bool = True
     include_chunks: bool = True
+    # Optional filters added in Phase 2 (web UI / explore page).
+    entity_ids: list[UUID] | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
 
 class SearchMemoryResponse(BaseModel):
@@ -79,3 +95,35 @@ class DeleteMemoryRequest(BaseModel):
 
 class DeleteMemoryResponse(BaseModel):
     deleted_count: int
+
+
+class PatchMemoryRequest(BaseModel):
+    """Inline edit of a memory's content. Re-embeds on save."""
+
+    content: str = Field(min_length=1, max_length=8000)
+
+
+# ---- Graph view ----
+
+
+class GraphNode(BaseModel):
+    """One node in the knowledge-graph view.
+
+    `id` is prefixed (`memory:<uuid>` or `entity:<uuid>`) so source/target in
+    edges are unambiguous when entities and memories share UUID namespaces.
+    """
+
+    id: str
+    kind: str  # memory_card | memory_chunk | entity_person | entity_place | ...
+    label: str
+
+
+class GraphEdge(BaseModel):
+    source: str  # always memory:<uuid> for now
+    target: str  # always entity:<uuid> for now
+    relation: str = ""
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]

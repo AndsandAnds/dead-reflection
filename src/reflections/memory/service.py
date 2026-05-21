@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from uuid import UUID
 
+from datetime import datetime
+
 from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
@@ -13,7 +15,11 @@ from reflections.memory.exceptions import (
     MemoryServiceException,
     MemoryUnprocessableException,
 )
-from reflections.memory.repository import MemoryRepository, MemoryRow
+from reflections.memory.repository import (
+    LinkedEntityRow,
+    MemoryRepository,
+    MemoryRow,
+)
 from reflections.memory.schemas import Turn
 
 EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"
@@ -203,6 +209,9 @@ class MemoryService:
         include_avatar_scope: bool,
         include_cards: bool,
         include_chunks: bool,
+        entity_ids: list[UUID] | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> list[MemoryRow]:
         if not query.strip():
             raise MemoryUnprocessableException("Query is empty")
@@ -219,11 +228,119 @@ class MemoryService:
                 include_avatar_scope=include_avatar_scope,
                 include_cards=include_cards,
                 include_chunks=include_chunks,
+                entity_ids=entity_ids,
+                date_from=date_from,
+                date_to=date_to,
             )
         except MemoryUnprocessableException:
             raise
         except Exception as exc:
             raise MemoryServiceException("Failed to search memory", str(exc)) from exc
+
+    async def get_linked_entities(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        memory_ids: list[UUID],
+    ) -> dict[UUID, list[LinkedEntityRow]]:
+        try:
+            return await self.repository.get_linked_entities(
+                session, user_id=user_id, memory_ids=memory_ids
+            )
+        except Exception as exc:
+            raise MemoryServiceException(
+                "Failed to fetch linked entities", str(exc)
+            ) from exc
+
+    async def update_content(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        memory_id: UUID,
+        content: str,
+    ) -> MemoryRow:
+        """Inline edit: replace content + re-embed. Re-runs entity extraction
+        best-effort so the graph reflects the new wording."""
+        text = content.strip()
+        if not text:
+            raise MemoryUnprocessableException("content is empty")
+
+        try:
+            emb = self.embed_text(text)
+            n = await self.repository.update_content(
+                session,
+                user_id=user_id,
+                memory_id=memory_id,
+                content=text,
+                embedding=emb,
+            )
+            if n == 0:
+                raise MemoryUnprocessableException("memory_not_found")
+            await session.commit()
+        except MemoryUnprocessableException:
+            await session.rollback()
+            raise
+        except Exception as exc:
+            await session.rollback()
+            raise MemoryServiceException("Failed to update memory", str(exc)) from exc
+
+        # Best-effort: re-run extraction. We don't repoint links — old links
+        # stay, new links append. Pragmatic for v1; can teach merge later.
+        if self.entities is not None:
+            try:
+                await self.entities.upsert_and_link(
+                    session,
+                    user_id=user_id,
+                    memory_item_ids=[memory_id],
+                    chunk_text=text,
+                )
+                await session.commit()
+            except Exception as exc:
+                await session.rollback()
+                _logger.warning(
+                    "entity_extraction_on_update_failed memory_id=%s err=%s",
+                    memory_id,
+                    exc,
+                )
+
+        row = await self.repository.get_by_id(
+            session, user_id=user_id, memory_id=memory_id
+        )
+        if row is None:
+            raise MemoryServiceException(
+                "memory_vanished_after_update", str(memory_id)
+            )
+        return row
+
+    async def get_graph(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        entity_id: UUID | None = None,
+        limit_memories: int = 500,
+    ) -> tuple[
+        list[MemoryRow],
+        list[LinkedEntityRow],
+        list[tuple[UUID, UUID, str]],
+    ]:
+        try:
+            return await self.repository.graph(
+                session,
+                user_id=user_id,
+                date_from=date_from,
+                date_to=date_to,
+                entity_id=entity_id,
+                limit_memories=limit_memories,
+            )
+        except Exception as exc:
+            raise MemoryServiceException(
+                "Failed to fetch graph", str(exc)
+            ) from exc
 
     async def inspect(
         self,
