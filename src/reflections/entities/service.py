@@ -39,12 +39,36 @@ class OllamaEntityExtractor:
     """
 
     SYSTEM_PROMPT = (
-        "Extract named entities mentioned in the conversation chunk. "
-        "Reply ONLY with JSON matching this schema (no prose, no code fences): "
-        '{"people": [string], "places": [string], "events": [string], "topics": [string]}. '
-        "Use short canonical names (e.g. 'Sarah' not 'my friend Sarah'). "
-        "Omit pronouns. Keep each list under 10 items. "
-        "If nothing of a kind appears, return an empty list for that kind."
+        "Extract named entities from the conversation chunk.\n"
+        "Reply ONLY with JSON, no prose, no code fences, matching this schema:\n"
+        '{"people": [string], "places": [string], '
+        '"events": [string], "topics": [string]}\n'
+        "\n"
+        "Rules — STRICT:\n"
+        "1. NEVER include pronouns or generic referents as entities. "
+        "Forbidden as 'people': I, me, my, you, your, we, us, our, he, him, "
+        "she, her, they, them, user, assistant, someone, anyone, person.\n"
+        "2. The narrator/speaker (the 'I' in the text) is NEVER an entity. "
+        "Only extract OTHER people, by their actual name.\n"
+        "3. Use the shortest canonical name. 'Sarah', not 'my friend Sarah'. "
+        "'Yirgacheffe', not 'Yirgacheffe beans from Ethiopia'.\n"
+        "4. Prefer specific over generic. 'Yirgacheffe' is a better place "
+        "than 'Ethiopia' if both are mentioned. 'Verve' is a better place "
+        "than 'coffee shop'.\n"
+        "5. Topics are short noun phrases (1-3 words) describing what the "
+        "text is ABOUT: 'coffee', 'pour-over', 'birthday party'. Not full "
+        "sentences.\n"
+        "6. If nothing of a kind appears, return an empty list for that kind.\n"
+        "7. Keep each list under 10 items.\n"
+        "\n"
+        "Examples:\n"
+        '  Input: "I prefer pour-over coffee from Ethiopia, Yirgacheffe beans."\n'
+        '  Output: {"people": [], "places": ["Yirgacheffe", "Ethiopia"], '
+        '"events": [], "topics": ["coffee", "pour-over"]}\n'
+        "\n"
+        '  Input: "Sarah and I went to Verve in Santa Cruz for her birthday."\n'
+        '  Output: {"people": ["Sarah"], "places": ["Verve", "Santa Cruz"], '
+        '"events": ["birthday"], "topics": []}\n'
     )
 
     async def extract(self, text: str) -> ExtractedEntities:
