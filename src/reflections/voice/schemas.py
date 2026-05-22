@@ -26,8 +26,21 @@ class VoiceEnd(BaseModel):
     type: Literal["end"]
 
 
+class VoiceTextUtterance(BaseModel):
+    """Direct text input — bypasses STT entirely.
+
+    Used when the user types instead of speaks. The server runs the same
+    agent turn loop (LLM stream + TTS + persist + memory) using `text`
+    as the user message, and emits the usual `final_transcript` /
+    `assistant_*` / `done` events so the UI can render it identically.
+    """
+
+    type: Literal["text_utterance"]
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
 ClientMessage = Annotated[
-    VoiceHello | VoiceAudioFrame | VoiceCancel | VoiceEnd,
+    VoiceHello | VoiceAudioFrame | VoiceCancel | VoiceEnd | VoiceTextUtterance,
     Field(discriminator="type"),
 ]
 

@@ -51,6 +51,8 @@ export default function VoicePage() {
   const [activeAvatar, setActiveAvatar] = useState<Avatar | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [textDraft, setTextDraft] = useState<string>("");
+  const [textSending, setTextSending] = useState<boolean>(false);
   const [greetStatus, setGreetStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -715,6 +717,49 @@ export default function VoicePage() {
     }
   }
 
+  async function sendText() {
+    const text = textDraft.trim();
+    if (!text || textSending) return;
+
+    // Barge-in: stop any audio playback so the response feels snappy.
+    try {
+      playbackRef.current?.stop();
+      playbackRef.current = null;
+    } catch {
+      // ignore
+    }
+
+    setTextSending(true);
+    try {
+      const ws = await ensureSocket();
+      if (!ws) {
+        setTextSending(false);
+        return;
+      }
+
+      // Make sure we have an audio context for playing back the TTS reply
+      // (the server still emits tts_chunk in text mode for parity).
+      try {
+        await ensureAudioContext();
+      } catch {
+        // Audio context failure is non-fatal — the agent reply still
+        // streams as text. Drop on the floor.
+      }
+
+      finalizeSentRef.current = true;
+      statusRef.current = "finalizing";
+      setStatus("finalizing");
+      try {
+        ws.send(JSON.stringify({ type: "text_utterance", text }));
+      } catch {
+        // ignore
+      }
+      setTextDraft("");
+    } finally {
+      setTextSending(false);
+    }
+  }
+
   function stop(cancel = false) {
     // Make stop idempotent to avoid duplicate 'end' from the silence timer
     // before React state + statusRef update propagate.
@@ -836,6 +881,62 @@ export default function VoicePage() {
           <a href="/memory" style={{ fontSize: 12 }}>
             Memory
           </a>
+        </section>
+
+        <section
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <input
+            type="text"
+            value={textDraft}
+            onChange={(e) => setTextDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void sendText();
+              }
+            }}
+            placeholder="…or type a message (Enter to send)"
+            disabled={
+              textSending ||
+              status === "connecting" ||
+              status === "finalizing" ||
+              status === "running"
+            }
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 14,
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              background:
+                status === "running" || status === "finalizing"
+                  ? "#f3f4f6"
+                  : "white",
+            }}
+          />
+          <button
+            onClick={() => void sendText()}
+            disabled={
+              !textDraft.trim() ||
+              textSending ||
+              status === "connecting" ||
+              status === "finalizing" ||
+              status === "running"
+            }
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              borderRadius: 8,
+            }}
+          >
+            {textSending ? "Sending…" : "Send"}
+          </button>
         </section>
 
         <section style={{ marginTop: 16, display: "flex", gap: 16 }}>

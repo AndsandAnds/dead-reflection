@@ -326,6 +326,81 @@ def test_voice_ws_emits_tts_chunks_when_tts_configured(
         assert "tts_chunk" in seen_types
 
 
+def test_voice_ws_text_utterance_runs_agent_without_stt(
+    client: TestClient, monkeypatch
+) -> None:
+    """
+    A `text_utterance` message replaces STT entirely. The server should:
+      - NEVER call transcribe_audio
+      - Emit a final_transcript with the exact typed text
+      - Stream + finalize the assistant reply normally
+    """
+    from reflections.voice import service as voice_service
+
+    monkeypatch.setattr(voice_service.settings, "TTS_BASE_URL", None)
+
+    stt_calls = 0
+    llm_calls = 0
+
+    class TextRepo(voice_service.VoiceRepository):
+        async def transcribe_audio(self, *, sample_rate: int, pcm16le=None):  # type: ignore[override]
+            nonlocal stt_calls
+            stt_calls += 1
+            return "this should never appear"
+
+        async def stream_assistant_reply_chat(self, *, messages):  # type: ignore[override]
+            nonlocal llm_calls
+            llm_calls += 1
+            # Echo back what was passed so we can assert the typed text was
+            # plumbed through to the agent.
+            assert messages[-1]["role"] == "user"
+            assert messages[-1]["content"] == "remind me to buy oat milk"
+            yield "ok"
+            yield ", will do."
+
+    monkeypatch.setattr(voice_service, "VoiceRepository", TextRepo)
+
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        ws.send_json({"type": "hello", "sample_rate": 16000})
+        ws.send_json(
+            {"type": "text_utterance", "text": "remind me to buy oat milk"}
+        )
+
+        final_msg = None
+        assistant_msg = None
+        done = None
+        for _ in range(20):
+            msg = ws.receive_json()
+            mtype = str(msg.get("type"))
+            if mtype == "final_transcript":
+                final_msg = msg
+            elif mtype == "assistant_message":
+                assistant_msg = msg
+            elif mtype == "done":
+                done = msg
+                break
+
+    assert stt_calls == 0, "text_utterance must not trigger STT"
+    assert llm_calls == 1
+    assert final_msg is not None
+    assert final_msg["text"] == "remind me to buy oat milk"
+    assert assistant_msg is not None
+    assert assistant_msg["text"] == "ok, will do."
+    assert done is not None
+
+
+def test_voice_ws_text_utterance_rejects_empty(client: TestClient) -> None:
+    """Empty / whitespace text shouldn't start a turn; we surface an error."""
+    with client.websocket_connect("/ws/voice") as ws:
+        _ = ws.receive_json()  # ready
+        # Pydantic schema enforces min_length=1, so this 422s as
+        # `invalid_message` before reaching the service.
+        ws.send_json({"type": "text_utterance", "text": ""})
+        msg = ws.receive_json()
+        assert msg["type"] == "error"
+
+
 def test_voice_ws_legacy_base64_audio_frame_still_works(client: TestClient) -> None:
     with client.websocket_connect("/ws/voice") as ws:
         _ = ws.receive_json()  # ready

@@ -308,7 +308,60 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 process_turn(pcm_snapshot=pcm, sample_rate=state.sample_rate)
             )
 
-    async def process_turn(*, pcm_snapshot: bytes, sample_rate: int) -> None:
+    async def start_text_turn(*, text: str) -> None:
+        """
+        Start one finalize/turn task for typed input.
+
+        Mirrors `start_finalize_turn` but skips the audio snapshot —
+        text replaces the STT step entirely. Same locking semantics so
+        a typed message can't race with an in-flight audio turn.
+        """
+        text = text.strip()
+        if not text:
+            await send(ServerError(message="empty_text", code="empty_text"))
+            await send(build_done_message())
+            return
+
+        async with finalize_lock:
+            if state.finalizing:
+                # A turn is already being processed; drop the typed input
+                # rather than queuing (matches the audio path's behavior).
+                return
+            state.finalizing = True
+            state.recording = False
+            state.latest_partial_text = ""
+            state.vad_started_monotonic = 0.0
+            state.vad_last_speech_monotonic = 0.0
+
+            # Discard any pending audio buffer so a stale fragment doesn't
+            # bleed into a later audio turn.
+            repo.reset_audio()
+
+            if state.turn_task and not state.turn_task.done():
+                # A typed utterance preempts whatever was in flight.
+                await cancel_turn(reset_audio=False)
+
+            state.turn_task = asyncio.create_task(
+                process_turn(
+                    pcm_snapshot=b"",
+                    sample_rate=state.sample_rate,
+                    transcript_override=text,
+                )
+            )
+
+    async def process_turn(
+        *,
+        pcm_snapshot: bytes,
+        sample_rate: int,
+        transcript_override: str | None = None,
+    ) -> None:
+        """Run one user→assistant turn.
+
+        Normally `pcm_snapshot` is transcribed via STT, but when the
+        client sends a `text_utterance` we get `transcript_override`
+        set and skip STT entirely. Everything downstream (LLM stream,
+        TTS, persistence, memory ingest) is identical.
+        """
         t0 = time.monotonic()
         stt_s: float | None = None
         llm_s: float | None = None
@@ -319,15 +372,19 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
         tts_task: asyncio.Task[None] | None = None
         try:
-            transcript = (
-                f"(stub) user spoke for ~{duration_s:.2f}s ({bytes_received} bytes)"
-            )
-            if settings.STT_BASE_URL:
-                stt0 = time.monotonic()
-                transcript = await repo.transcribe_audio(
-                    sample_rate=sample_rate, pcm16le=pcm_snapshot
+            if transcript_override is not None:
+                transcript = transcript_override
+            else:
+                transcript = (
+                    f"(stub) user spoke for ~{duration_s:.2f}s "
+                    f"({bytes_received} bytes)"
                 )
-                stt_s = time.monotonic() - stt0
+                if settings.STT_BASE_URL:
+                    stt0 = time.monotonic()
+                    transcript = await repo.transcribe_audio(
+                        sample_rate=sample_rate, pcm16le=pcm_snapshot
+                    )
+                    stt_s = time.monotonic() - stt0
             await send(
                 build_final_transcript_message(
                     text=transcript,
@@ -677,6 +734,10 @@ async def run_voice_session(websocket: WebSocket) -> None:
 
             if parsed.type == "end":
                 await start_finalize_turn(reason="client_end")
+                continue
+
+            if parsed.type == "text_utterance":
+                await start_text_turn(text=parsed.text)
                 continue
 
             # ignore unknown message types
