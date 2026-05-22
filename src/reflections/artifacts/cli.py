@@ -43,10 +43,12 @@ async def _crawl(
     subpath: str,
     max_pages: int,
 ) -> int:
-    abs_path = str(Path(path).expanduser().resolve())
-    if not Path(abs_path).is_dir():
-        print(f"error: {abs_path} is not a directory", file=sys.stderr)
-        return 2
+    # NOTE: `path` is a HOST-side path. The catalog bridge walks the
+    # host filesystem (the api container doesn't mount it), so we just
+    # normalize it here — the bridge is the source of truth for whether
+    # the directory exists and will surface a clear error if it doesn't.
+    p = Path(path).expanduser()
+    abs_path = str(p if p.is_absolute() else p.resolve())
 
     await database_manager.initialize()
     async with database_manager.session() as session:
