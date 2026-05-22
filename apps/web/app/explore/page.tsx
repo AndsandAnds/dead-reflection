@@ -21,7 +21,7 @@ import {
 type Mode = "browse" | "search";
 type KindFilter = "any" | "card" | "chunk";
 
-const ENTITY_KINDS: EntityKind[] = ["person", "place", "event", "topic"];
+const ENTITY_KINDS: EntityKind[] = ["person", "place", "event", "topic", "org"];
 
 export default function ExplorePage() {
   const router = useRouter();
@@ -134,8 +134,13 @@ export default function ExplorePage() {
       place: [],
       event: [],
       topic: [],
+      org: [],
     };
-    for (const e of entities) m[e.kind].push(e);
+    for (const e of entities) {
+      // Defensive: if the backend ever ships another new kind, drop it
+      // into the closest bucket rather than throwing in the render path.
+      (m[e.kind] ?? (m[e.kind] = [])).push(e);
+    }
     return m;
   }, [entities]);
 
