@@ -9,6 +9,7 @@ import { LuminaTopBar } from "../_components/LuminaTopBar";
 import { TalkingAvatar } from "../_components/TalkingAvatar";
 import { authMe, type AuthUser } from "../_lib/auth";
 import { avatarsList, type Avatar } from "../_lib/avatars";
+import { conversationsRecent } from "../_lib/conversations";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; text: string };
 
@@ -90,6 +91,22 @@ export default function VoicePage() {
     statusRef.current = status;
   }, [status]);
 
+  // Reloads the active avatar from the server. Called on mount AND on
+  // visibility change so that editing the avatar on /avatar and coming
+  // back (whether by in-app nav or by switching browser tabs) shows
+  // the new name immediately.
+  async function refreshActiveAvatar(): Promise<void> {
+    try {
+      const u = await authMe();
+      const res = await avatarsList();
+      const activeId = (u as any)?.active_avatar_id ?? res.active_avatar_id;
+      const active = (res.items ?? []).find((a) => a.id === activeId) ?? null;
+      setActiveAvatar(active);
+    } catch {
+      // avatars are optional — non-fatal
+    }
+  }
+
   useEffect(() => {
     (async () => {
       const u = await authMe();
@@ -105,6 +122,34 @@ export default function VoicePage() {
         setActiveAvatar(active);
       } catch {
         // ignore (avatars are optional)
+      }
+
+      // Hydrate the transcript from the server's most-recent conversation
+      // BEFORE we decide whether to ask for a greeting. If there's
+      // history we skip the greeting so the user comes back to exactly
+      // what they left, not a fresh "Hello" on top.
+      let hadHistory = false;
+      try {
+        const hist = await conversationsRecent(40);
+        if (hist.turns.length > 0) {
+          hadHistory = true;
+          setMessages(
+            hist.turns.map((t) => ({
+              role: t.role as ChatMessage["role"],
+              text: t.content,
+            }))
+          );
+        }
+      } catch {
+        // Non-fatal — falls through to greeting path.
+      }
+
+      if (hadHistory) {
+        // Mark greeting as "done" so React StrictMode's double-mount
+        // doesn't double-fire it later.
+        greetRequestedRef.current = true;
+        setGreetStatus("ready");
+        return;
       }
 
       // Greeting warmup: generate a short model-authored greeting and (optionally) TTS it
@@ -159,6 +204,40 @@ export default function VoicePage() {
       }
     })();
   }, [router]);
+
+  // When the tab becomes visible again (browser tab switch, OS focus
+  // restore, etc.) refresh both the avatar (might have been renamed
+  // on /avatar) and the transcript (a turn might have been added in
+  // another tab). This is cheap — two small GETs — and keeps /voice
+  // honest without polling.
+  useEffect(() => {
+    if (!me) return;
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      void refreshActiveAvatar();
+      // Don't blow away in-flight assistant streaming with stale history.
+      if (statusRef.current === "running" || statusRef.current === "finalizing") {
+        return;
+      }
+      (async () => {
+        try {
+          const hist = await conversationsRecent(40);
+          if (hist.turns.length === 0) return;
+          setMessages(
+            hist.turns.map((t) => ({
+              role: t.role as ChatMessage["role"],
+              text: t.content,
+            }))
+          );
+        } catch {
+          // ignore
+        }
+      })();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
 
   useEffect(() => {
     const isEditableTarget = (t: EventTarget | null): boolean => {

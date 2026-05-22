@@ -19,6 +19,8 @@ from reflections.conversations.schemas import (
     ConversationTurnPublic,
     GetConversationResponse,
     ListConversationsResponse,
+    RecentConversationResponse,
+    RecentTurn,
 )
 from reflections.conversations.service import ConversationsService
 
@@ -62,6 +64,32 @@ async def list_conversations(
 ) -> ListConversationsResponse:
     items = await svc.list_conversations(session, user=user, limit=limit, offset=offset)
     return ListConversationsResponse(items=[_to_conversation_public(c) for c in items])
+
+
+@router.get("/recent", response_model=RecentConversationResponse)
+async def get_recent_conversation(
+    session: Annotated[AsyncSession, Depends(database_session)],
+    svc: Annotated[ConversationsService, Depends(get_conversations_service)],
+    user=Depends(current_user_required),
+    limit: int = Query(default=40, ge=1, le=200),
+) -> RecentConversationResponse:
+    """Tail of the user's most-recent conversation for the active avatar.
+
+    Used by /voice to hydrate the chat transcript on mount so navigating
+    away and back doesn't wipe the conversation. The shape mirrors
+    `ConversationsService.load_recent_context` so this REST view and the
+    WS-server-side replay can never drift.
+    """
+    cid, msgs = await svc.load_recent_context(
+        session,
+        user_id=user.id,
+        avatar_id=getattr(user, "active_avatar_id", None),
+        limit_turns=limit,
+    )
+    return RecentConversationResponse(
+        conversation_id=cid,
+        turns=[RecentTurn(role=m["role"], content=m["content"]) for m in msgs],
+    )
 
 
 @router.get("/{conversation_id}", response_model=GetConversationResponse)

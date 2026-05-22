@@ -41,3 +41,20 @@ class ListConversationsQuery(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
+class RecentTurn(BaseModel):
+    """Lightweight chat turn for client-side hydration on /voice.
+
+    Mirrors the shape that `ConversationsService.load_recent_context`
+    returns to the WS server (role + content only) so the same
+    underlying query backs both code paths.
+    """
+
+    role: TurnRole
+    content: str
+
+
+class RecentConversationResponse(BaseModel):
+    conversation_id: UUID | None = None
+    turns: list[RecentTurn]
+
+
