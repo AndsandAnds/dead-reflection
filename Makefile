@@ -7,6 +7,7 @@
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
 .PHONY: bridges-preflight bridges-verify-running check-bridge-python check-tts-piper check-stt-whisper check-calendar-eventkit
 .PHONY: mcp-token crawl-folder reset-graph
+.PHONY: audit audit-python audit-node
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -52,6 +53,9 @@ help:
 	@echo "  make mcp-token email=... [name=...] [scopes=mcp:read,...] - mint an MCP token"
 	@echo "  make crawl-folder email=... path=... [label=...] [subpath=...] - register volume + walk it"
 	@echo "  make reset-graph confirm=YES - DESTRUCTIVE: wipe all memories/entities/artifacts/conversations"
+	@echo "  make audit          - CVE scan both lockfiles (pip-audit + npm audit)"
+	@echo "  make audit-python   - CVE scan poetry.lock"
+	@echo "  make audit-node     - CVE scan apps/web/package-lock.json"
 
 up:
 	docker compose up -d --build
@@ -500,5 +504,26 @@ db-bench-vector-io-uring:
 	@POSTGRES_IO_METHOD=io_uring docker compose up -d db || true
 	@sleep 2
 	@$(MAKE) db-bench-vector || true
+
+# ---------------------------------------------------------------------------
+# Dependency CVE scanning. Run on demand before bumping lockfiles or after a
+# supply-chain incident lands in the news. Both tools exit non-zero on
+# findings, so `make audit` fails loudly in CI.
+#
+# `audit-python` runs pip-audit against the active Poetry environment, so
+# `poetry install` must have been run first.
+# `audit-node` reads apps/web/package-lock.json directly via the npm
+# advisory API; no node_modules required.
+# ---------------------------------------------------------------------------
+
+audit: audit-python audit-node
+
+audit-python:
+	@echo "==> pip-audit (Poetry environment)"
+	@poetry run pip-audit
+
+audit-node:
+	@echo "==> npm audit (apps/web, prod deps only)"
+	@cd apps/web && npm audit --omit=dev
 
 

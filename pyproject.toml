@@ -53,6 +53,7 @@ mac = [
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^4.0.1"
 ruff = "^0.8.4"
+pip-audit = "^2.7.3"
 
 [tool.pytest.ini_options]
 minversion = "8.0"

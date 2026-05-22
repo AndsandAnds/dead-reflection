@@ -1,13 +1,15 @@
 """
-Unit tests for OutboundService — the admin gate, the audit write, and the
-DuckDuckGo Lite HTML parser.
+Unit tests for OutboundService — the admin gate, the SSRF guard, the audit
+write, and the DuckDuckGo Lite HTML parser.
 
-We mock httpx so no real network call is made.
+We mock httpx so no real network call is made. The SSRF guard's DNS lookup
+is also stubbed so tests don't depend on resolver behavior.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import socket
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -15,6 +17,7 @@ import httpx  # type: ignore[import-not-found]
 import pytest  # type: ignore[import-not-found]
 
 from reflections.commons.ids import uuid7_uuid
+from reflections.outbound import service as outbound_service
 from reflections.outbound.exceptions import (
     OutboundForbiddenException,
     OutboundServiceException,
@@ -78,6 +81,11 @@ class FakeSession:
         return None
 
 
+async def _allow_all_hosts(_host: str) -> str | None:
+    """Stub _resolve_and_check_host for tests that aren't exercising SSRF."""
+    return None
+
+
 # --- admin gate ---------------------------------------------------------------
 
 
@@ -134,6 +142,9 @@ async def test_admin_call_is_audited_with_status(monkeypatch) -> None:
             return _Resp()
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        outbound_service, "_resolve_and_check_host", _allow_all_hosts
+    )
 
     resp = await svc.request(
         FakeSession(),  # type: ignore[arg-type]
@@ -176,6 +187,9 @@ async def test_network_error_is_audited_as_error(monkeypatch) -> None:
             raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        outbound_service, "_resolve_and_check_host", _allow_all_hosts
+    )
 
     with pytest.raises(OutboundServiceException):
         await svc.request(
@@ -227,6 +241,9 @@ async def test_internet_search_returns_parsed_hits(monkeypatch) -> None:
             return _Resp()
 
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        outbound_service, "_resolve_and_check_host", _allow_all_hosts
+    )
 
     result = await svc.internet_search(
         FakeSession(),  # type: ignore[arg-type]
@@ -276,3 +293,190 @@ def test_parser_handles_both_quote_styles_and_attr_orders() -> None:
 
 def test_parser_handles_no_results() -> None:
     assert _parse_ddg_lite_html("<html>nothing here</html>") == []
+
+
+# --- SSRF guard ---------------------------------------------------------------
+
+
+class _NetworkUsed(AssertionError):
+    """Raised if a blocked target reaches the httpx layer (test failure)."""
+
+
+@pytest.fixture()
+def _explode_on_network(monkeypatch):
+    """Replace httpx.AsyncClient with one that fails the test if instantiated."""
+
+    class _Boom:
+        def __init__(self, *_a, **_kw):
+            raise _NetworkUsed("SSRF guard did not block before httpx was reached")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Boom)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:9999/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]/",
+        "http://10.0.0.5/",
+        "http://192.168.1.1/admin",
+    ],
+)
+async def test_ip_literal_targets_are_blocked_before_network(
+    url, _explode_on_network
+) -> None:
+    """Loopback, link-local metadata, IPv6 loopback, RFC1918 → denied + audited."""
+    repo = FakeAuditRepo()
+    svc = OutboundService(repo=repo)  # type: ignore[arg-type]
+    user = UserCtx(id=uuid7_uuid(), is_admin=True)
+
+    with pytest.raises(OutboundForbiddenException):
+        await svc.request(
+            FakeSession(),  # type: ignore[arg-type]
+            user=user,
+            method="GET",
+            url=url,
+        )
+
+    assert len(repo.rows) == 1
+    row = repo.rows[0]
+    assert row["outcome"] == "denied"
+    assert row["error"].startswith("blocked_internal_address:")
+    assert row["url"] == url
+
+
+@pytest.mark.anyio
+async def test_internal_hostname_is_blocked_via_dns_resolution(
+    monkeypatch, _explode_on_network
+) -> None:
+    """A docker-internal hostname like `db` that resolves to RFC1918 → denied."""
+    repo = FakeAuditRepo()
+    svc = OutboundService(repo=repo)  # type: ignore[arg-type]
+    user = UserCtx(id=uuid7_uuid(), is_admin=True)
+
+    async def _fake_getaddrinfo(self, host, port, **_kwargs):
+        assert host == "db"
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("172.18.0.2", 0),
+            )
+        ]
+
+    monkeypatch.setattr(
+        "asyncio.events.AbstractEventLoop.getaddrinfo", _fake_getaddrinfo
+    )
+
+    with pytest.raises(OutboundForbiddenException):
+        await svc.request(
+            FakeSession(),  # type: ignore[arg-type]
+            user=user,
+            method="GET",
+            url="http://db:5432/",
+        )
+
+    assert len(repo.rows) == 1
+    row = repo.rows[0]
+    assert row["outcome"] == "denied"
+    assert "172.18.0.2" in row["error"]
+
+
+@pytest.mark.anyio
+async def test_public_hostname_passes_through(monkeypatch) -> None:
+    """A normal public hostname (DDG Lite-style) is allowed through to httpx."""
+    repo = FakeAuditRepo()
+    svc = OutboundService(repo=repo)  # type: ignore[arg-type]
+    user = UserCtx(id=uuid7_uuid(), is_admin=True)
+
+    async def _fake_getaddrinfo(self, host, port, **_kwargs):
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("40.89.244.232", 0),  # arbitrary public IP
+            )
+        ]
+
+    monkeypatch.setattr(
+        "asyncio.events.AbstractEventLoop.getaddrinfo", _fake_getaddrinfo
+    )
+
+    class _Resp:
+        status_code = 200
+        text = ""
+        is_success = True
+
+    class _Client:
+        def __init__(self, *_a, **_kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def request(self, *_a, **_kw):
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    resp = await svc.request(
+        FakeSession(),  # type: ignore[arg-type]
+        user=user,
+        method="POST",
+        url="https://lite.duckduckgo.com/lite/",
+        purpose="internet_search",
+    )
+    assert resp.status_code == 200
+    assert repo.rows[0]["outcome"] == "ok"
+
+
+@pytest.mark.anyio
+async def test_dns_failure_is_audited_as_error(monkeypatch) -> None:
+    repo = FakeAuditRepo()
+    svc = OutboundService(repo=repo)  # type: ignore[arg-type]
+    user = UserCtx(id=uuid7_uuid(), is_admin=True)
+
+    async def _fake_getaddrinfo(self, host, port, **_kwargs):
+        raise socket.gaierror("Name or service not known")
+
+    monkeypatch.setattr(
+        "asyncio.events.AbstractEventLoop.getaddrinfo", _fake_getaddrinfo
+    )
+
+    with pytest.raises(OutboundServiceException):
+        await svc.request(
+            FakeSession(),  # type: ignore[arg-type]
+            user=user,
+            method="GET",
+            url="https://does-not-resolve.invalid/",
+        )
+
+    assert len(repo.rows) == 1
+    assert repo.rows[0]["outcome"] == "error"
+    assert "dns_resolution_failed" in repo.rows[0]["error"]
+
+
+@pytest.mark.anyio
+async def test_url_without_host_is_rejected(_explode_on_network) -> None:
+    repo = FakeAuditRepo()
+    svc = OutboundService(repo=repo)  # type: ignore[arg-type]
+    user = UserCtx(id=uuid7_uuid(), is_admin=True)
+
+    with pytest.raises(OutboundForbiddenException):
+        await svc.request(
+            FakeSession(),  # type: ignore[arg-type]
+            user=user,
+            method="GET",
+            url="file:///etc/passwd",
+        )
+
+    assert repo.rows[0]["error"] == "invalid_url_no_host"
