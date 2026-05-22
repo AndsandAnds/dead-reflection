@@ -48,6 +48,59 @@ def chunk_turns_by_window(turns: list[Turn], window: int) -> list[str]:
     return chunks
 
 
+def user_only_text(chunk_text: str) -> str:
+    """
+    Return only the user-attributed portion of a chunk's text.
+
+    Why: voice-ingested chunks are stored as
+        "user: I went hiking\nassistant: Where did you go?"
+    so they keep useful conversational context for recall. But if we
+    hand that whole string to the entity extractor, any proper noun
+    the LLM hallucinates in its reply ("you mean Verve?", "with Sarah?")
+    becomes a real graph node — polluting the user's knowledge graph
+    with the model's guesses.
+
+    This helper strips assistant/system lines for the extractor input
+    while leaving the stored chunk text alone. Two shapes to handle:
+
+      1. Role-prefixed multi-turn text (voice flow) — pull only `user:`
+         lines, return joined.
+      2. Raw text with no role prefixes (record_memory MCP tool, inline
+         edit, vault import) — return unchanged. The whole thing is
+         already user-attributed.
+    """
+    raw = chunk_text or ""
+    if not raw.strip():
+        return ""
+
+    # Classify each line: 'user' content gets kept, other roles are dropped,
+    # and lines with no recognized role prefix mean we're looking at raw
+    # user-authored text (cards, vault imports, inline edits) so the whole
+    # blob should pass through unchanged.
+    user_lines: list[str] = []
+    saw_any_role = False
+    for line in raw.splitlines():
+        stripped = line.lstrip()
+        lower = stripped.lower()
+        if lower.startswith("user:") or lower.startswith("user :"):
+            saw_any_role = True
+            user_lines.append(stripped.split(":", 1)[1].strip())
+        elif (
+            lower.startswith("assistant:")
+            or lower.startswith("assistant :")
+            or lower.startswith("system:")
+            or lower.startswith("system :")
+        ):
+            saw_any_role = True
+            # Drop. Assistant/system text never contributes entities.
+
+    if not saw_any_role:
+        # Raw user-authored text — no role prefixes at all.
+        return raw.strip()
+
+    return "\n".join(user_lines).strip()
+
+
 def extract_memory_cards_heuristic(turns: list[Turn]) -> list[str]:
     """
     Heuristic v0: extract a few high-signal sentences.
@@ -177,14 +230,21 @@ class MemoryService:
             raise MemoryServiceException("Failed to ingest memory", str(exc)) from exc
 
         # Best-effort entity extraction. Failures here must never break ingest.
+        # IMPORTANT: extract from user-attributed text only, so the assistant's
+        # hallucinated proper nouns ("you mean Verve?") never become entities.
         if self.entities is not None and chunk_id_to_text:
             for chunk_id, chunk_text in chunk_id_to_text:
+                extraction_input = user_only_text(chunk_text)
+                if not extraction_input:
+                    # All-assistant chunk (shouldn't happen for voice turns,
+                    # but defensive). Skip extraction entirely.
+                    continue
                 try:
                     await self.entities.upsert_and_link(
                         session,
                         user_id=user_id,
                         memory_item_ids=[chunk_id],
-                        chunk_text=chunk_text,
+                        chunk_text=extraction_input,
                     )
                     await session.commit()
                 except Exception as exc:
@@ -290,13 +350,18 @@ class MemoryService:
 
         # Best-effort: re-run extraction. We don't repoint links — old links
         # stay, new links append. Pragmatic for v1; can teach merge later.
-        if self.entities is not None:
+        # Apply the same user-only filter — inline edits are usually raw
+        # user text and pass through unchanged, but if someone hand-edits
+        # a voice chunk to keep the dialogue format we still want to
+        # exclude assistant lines from extraction.
+        extraction_input = user_only_text(text) if self.entities is not None else ""
+        if self.entities is not None and extraction_input:
             try:
                 await self.entities.upsert_and_link(
                     session,
                     user_id=user_id,
                     memory_item_ids=[memory_id],
-                    chunk_text=text,
+                    chunk_text=extraction_input,
                 )
                 await session.commit()
             except Exception as exc:
