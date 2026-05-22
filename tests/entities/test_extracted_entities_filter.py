@@ -66,3 +66,35 @@ def test_as_entities_preserves_per_kind_dedupe() -> None:
     )
     out = ee.as_entities()
     assert {(e.kind, e.name) for e in out} == {("place", "Brooklyn"), ("topic", "Brooklyn")}
+
+
+def test_as_entities_emits_orgs() -> None:
+    """Bands / companies / teams come through with kind='org'."""
+    ee = ExtractedEntities(
+        people=["John Barr"],
+        orgs=["The Hogs", "the hogs", "Anthropic"],
+        topics=["music"],
+    )
+    out = ee.as_entities()
+    by_kind = {
+        k: [e.name for e in out if e.kind == k]
+        for k in {"person", "org", "topic"}
+    }
+    assert by_kind["person"] == ["John Barr"]
+    # Case-insensitive dedupe inside 'org' kicks in
+    assert by_kind["org"] == ["The Hogs", "Anthropic"]
+    assert by_kind["topic"] == ["music"]
+
+
+def test_org_and_person_with_same_name_are_distinct() -> None:
+    """Edge case: a person's surname matching an org name should not collide
+    across kinds (per-kind dedupe only)."""
+    ee = ExtractedEntities(
+        people=["Anthropic"],   # contrived but should pass
+        orgs=["Anthropic"],
+    )
+    out = ee.as_entities()
+    assert {(e.kind, e.name) for e in out} == {
+        ("person", "Anthropic"),
+        ("org", "Anthropic"),
+    }

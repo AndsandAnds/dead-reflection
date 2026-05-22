@@ -42,7 +42,19 @@ class OllamaEntityExtractor:
         "Extract named entities from the conversation chunk.\n"
         "Reply ONLY with JSON, no prose, no code fences, matching this schema:\n"
         '{"people": [string], "places": [string], '
-        '"events": [string], "topics": [string]}\n'
+        '"events": [string], "topics": [string], "orgs": [string]}\n'
+        "\n"
+        "Categories:\n"
+        "- people:  individual humans, by name (\"Sarah\", \"Dr. Levin\").\n"
+        "- places:  physical locations (\"Verve\", \"Coney Island\", \"San Francisco\").\n"
+        "- events:  things that happen at a point in time (\"birthday\", "
+        "\"Siren Festival\", \"kickoff\").\n"
+        "- topics:  short noun phrases describing what the text is ABOUT "
+        "(\"coffee\", \"climate-tech\", \"vinyl\").\n"
+        "- orgs:    named collectives — bands, companies, teams, clubs, "
+        "schools, charities, podcasts, government bodies. A band's NAME "
+        "belongs here, not in 'people'. Examples: \"The Hogs\", \"Anthropic\", "
+        "\"Warriors\", \"Boy Scouts\".\n"
         "\n"
         "Rules — STRICT:\n"
         "1. NEVER include pronouns or generic referents as entities. "
@@ -51,24 +63,39 @@ class OllamaEntityExtractor:
         "2. The narrator/speaker (the 'I' in the text) is NEVER an entity. "
         "Only extract OTHER people, by their actual name.\n"
         "3. Use the shortest canonical name. 'Sarah', not 'my friend Sarah'. "
-        "'Yirgacheffe', not 'Yirgacheffe beans from Ethiopia'.\n"
+        "'The Hogs', not 'a band named The Hogs'.\n"
         "4. Prefer specific over generic. 'Yirgacheffe' is a better place "
         "than 'Ethiopia' if both are mentioned. 'Verve' is a better place "
-        "than 'coffee shop'.\n"
-        "5. Topics are short noun phrases (1-3 words) describing what the "
-        "text is ABOUT: 'coffee', 'pour-over', 'birthday party'. Not full "
-        "sentences.\n"
-        "6. If nothing of a kind appears, return an empty list for that kind.\n"
-        "7. Keep each list under 10 items.\n"
+        "than 'coffee shop'. 'The Hogs' is a better org than 'band'.\n"
+        "5. A band name is an ORG, not a person. \"The Hogs played with "
+        "The Micks\" → orgs: [\"The Hogs\", \"The Micks\"]. Individual band "
+        "members go in 'people' only when their personal name appears.\n"
+        "6. Topics are about abstract subjects (\"music\", \"coffee\"), not "
+        "named things. If you have a proper noun, prefer org/place/event "
+        "over topic.\n"
+        "7. If nothing of a kind appears, return an empty list for that kind.\n"
+        "8. Keep each list under 10 items.\n"
         "\n"
         "Examples:\n"
         '  Input: "I prefer pour-over coffee from Ethiopia, Yirgacheffe beans."\n'
         '  Output: {"people": [], "places": ["Yirgacheffe", "Ethiopia"], '
-        '"events": [], "topics": ["coffee", "pour-over"]}\n'
+        '"events": [], "topics": ["coffee", "pour-over"], "orgs": []}\n'
         "\n"
         '  Input: "Sarah and I went to Verve in Santa Cruz for her birthday."\n'
         '  Output: {"people": ["Sarah"], "places": ["Verve", "Santa Cruz"], '
-        '"events": ["birthday"], "topics": []}\n'
+        '"events": ["birthday"], "topics": [], "orgs": []}\n'
+        "\n"
+        '  Input: "John Barr is in a band named The Hogs with Justin Wise '
+        'and Corey Hamm."\n'
+        '  Output: {"people": ["John Barr", "Justin Wise", "Corey Hamm"], '
+        '"places": [], "events": [], "topics": ["music"], '
+        '"orgs": ["The Hogs"]}\n'
+        "\n"
+        '  Input: "The Hogs played Siren Festival in Coney Island with '
+        'The Micks, Abhors, and Swamps."\n'
+        '  Output: {"people": [], "places": ["Coney Island"], '
+        '"events": ["Siren Festival"], "topics": [], '
+        '"orgs": ["The Hogs", "The Micks", "Abhors", "Swamps"]}\n'
     )
 
     async def extract(self, text: str) -> ExtractedEntities:

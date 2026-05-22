@@ -2,7 +2,7 @@
 
 export type MemoryKind = "card" | "chunk";
 export type MemoryScope = "user" | "avatar";
-export type EntityKind = "person" | "place" | "event" | "topic";
+export type EntityKind = "person" | "place" | "event" | "topic" | "org";
 
 export type LinkedEntity = {
   id: string;

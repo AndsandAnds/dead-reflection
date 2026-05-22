@@ -6,7 +6,20 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-EntityKind = Literal["person", "place", "event", "topic"]
+EntityKind = Literal["person", "place", "event", "topic", "org"]
+"""
+- person: a real individual ("Sarah", "Dr. Levin")
+- place: a location ("Verve", "Coney Island", "San Francisco")
+- event: something that happens at a point in time ("birthday",
+  "Siren Festival", "kickoff meeting")
+- topic: a 1–3 word noun phrase describing what the text is ABOUT
+  ("coffee", "pour-over", "climate-tech")
+- org: a named collective — a band, company, team, club, school,
+  charity, government body, podcast, etc. Anything you'd refer to by
+  a proper noun that isn't an individual person or a physical place.
+  Examples: "The Hogs" (band), "Tahoe Mountain Construction"
+  (company), "Warriors" (team), "Boy Scouts" (club).
+"""
 
 
 # Names the extractor must never produce as entities. We post-filter on these
@@ -98,6 +111,7 @@ class ExtractedEntities(BaseModel):
     places: list[str] = Field(default_factory=list)
     events: list[str] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
+    orgs: list[str] = Field(default_factory=list)
 
     def as_entities(self) -> list[ExtractedEntity]:
         out: list[ExtractedEntity] = []
@@ -107,6 +121,7 @@ class ExtractedEntities(BaseModel):
             ("place", self.places),
             ("event", self.events),
             ("topic", self.topics),
+            ("org", self.orgs),
         ):
             for raw in names:
                 if _is_garbage_name(raw):

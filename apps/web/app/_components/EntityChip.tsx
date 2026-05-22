@@ -16,6 +16,9 @@ const KIND_COLORS: Record<EntityKind, { bg: string; fg: string }> = {
   event: { bg: "rgba(249,115,22,0.14)", fg: "rgba(194,65,12,1)" },
   // Marigold (warm yellow-orange)
   topic: { bg: "rgba(234,179,8,0.16)", fg: "rgba(161,98,7,1)" },
+  // Indigo — orgs / bands / companies / teams. Distinct from artifact_pdf
+  // violet so file nodes don't get confused with collective nodes.
+  org: { bg: "rgba(99,102,241,0.14)", fg: "rgba(67,56,202,1)" },
 };
 
 export function EntityChip({

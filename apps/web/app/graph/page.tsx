@@ -35,6 +35,7 @@ const COLOR_BY_KIND: Record<string, string> = {
   entity_place: "#14b8a6",  // teal
   entity_event: "#f97316",  // orange
   entity_topic: "#eab308",  // marigold
+  entity_org: "#6366f1",    // indigo — bands, companies, teams, clubs
   // Artifacts — distinct family of muted blues/slates so files read as
   // "leaf nodes" against the colorful entity/memory nodes.
   artifact_pdf: "#7c3aed",   // violet — paper docs
@@ -344,6 +345,7 @@ function Legend() {
     ["entity_place", "Place"],
     ["entity_event", "Event"],
     ["entity_topic", "Topic"],
+    ["entity_org", "Group / org"],
     ["memory_card", "Memory card"],
     ["memory_chunk", "Memory chunk"],
     ["artifact_pdf", "PDF"],
