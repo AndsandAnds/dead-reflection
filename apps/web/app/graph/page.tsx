@@ -59,7 +59,12 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const fgRef = useRef<any>(null);
   const [dims, setDims] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
+  const [query, setQuery] = useState<string>("");
+  const [searchOpen, setSearchOpen] = useState<boolean>(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [activeMatchIdx, setActiveMatchIdx] = useState<number>(0);
 
   useEffect(() => {
     let alive = true;
@@ -125,6 +130,46 @@ export default function GraphPage() {
     return { nodes, links };
   }, [data]);
 
+  // Search: case-insensitive substring match on label + kind. Ranked by
+  // label length (shorter = more specific) so an exact-ish match wins
+  // over a long phrase that happens to contain the query.
+  const matches = useMemo<GraphNode[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const hits = data.nodes.filter(
+      (n) =>
+        n.label.toLowerCase().includes(q) ||
+        n.kind.toLowerCase().includes(q)
+    );
+    hits.sort((a, b) => a.label.length - b.label.length);
+    return hits.slice(0, 20);
+  }, [query, data.nodes]);
+
+  // Keep activeMatchIdx in range as `matches` changes.
+  useEffect(() => {
+    if (activeMatchIdx >= matches.length) setActiveMatchIdx(0);
+  }, [matches.length, activeMatchIdx]);
+
+  function jumpToNode(node: GraphNode) {
+    setSelected(node);
+    setHighlightId(node.id);
+    setSearchOpen(false);
+    // The simulation enriches each node with x/y. After the first tick
+    // those are present; if the user searches super-early we just open
+    // the side panel and let the next render center.
+    const fg = fgRef.current;
+    if (!fg) return;
+    const live = (graphData.nodes as any[]).find((n) => n.id === node.id);
+    if (live && typeof live.x === "number" && typeof live.y === "number") {
+      try {
+        fg.centerAt(live.x, live.y, 700);
+        fg.zoom(4, 700);
+      } catch {
+        // ignore — older ForceGraph versions may not expose these
+      }
+    }
+  }
+
   if (!me) {
     return <div style={{ padding: 24 }}>Loading...</div>;
   }
@@ -159,6 +204,135 @@ export default function GraphPage() {
               : `${data.nodes.length} nodes, ${data.edges.length} edges`}
           </div>
           <div style={{ flex: 1 }} />
+
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSearchOpen(true);
+                setActiveMatchIdx(0);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => {
+                // Defer so a click on a dropdown item still registers.
+                window.setTimeout(() => setSearchOpen(false), 150);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveMatchIdx((i: number) =>
+                    Math.min(i + 1, Math.max(0, matches.length - 1))
+                  );
+                  setSearchOpen(true);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveMatchIdx((i: number) => Math.max(i - 1, 0));
+                  setSearchOpen(true);
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  const pick = matches[activeMatchIdx];
+                  if (pick) jumpToNode(pick);
+                } else if (e.key === "Escape") {
+                  setSearchOpen(false);
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Search graph (Enter to jump)"
+              style={{
+                width: 260,
+                padding: "6px 10px",
+                fontSize: 13,
+                border: "1px solid #ddd",
+                borderRadius: 8,
+                background: "white",
+              }}
+            />
+            {searchOpen && query.trim() && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  marginTop: 6,
+                  width: 320,
+                  maxHeight: 360,
+                  overflowY: "auto",
+                  background: "white",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 10,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                  zIndex: 50,
+                  fontSize: 13,
+                }}
+              >
+                {matches.length === 0 ? (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      color: "#6b7280",
+                    }}
+                  >
+                    No matches in current view.
+                  </div>
+                ) : (
+                  matches.map((m, idx) => (
+                    <div
+                      key={m.id}
+                      onMouseDown={(e) => {
+                        // mousedown beats the blur-induced close
+                        e.preventDefault();
+                        jumpToNode(m);
+                      }}
+                      onMouseEnter={() => setActiveMatchIdx(idx)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "7px 12px",
+                        cursor: "pointer",
+                        background:
+                          idx === activeMatchIdx ? "#f3f4f6" : "transparent",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          background: colorFor(m.kind),
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "#6b7280",
+                          textTransform: "uppercase",
+                          letterSpacing: 0.4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {m.kind.replace("_", "·")}
+                      </span>
+                      <span
+                        style={{
+                          color: "#111827",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.label}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           <DateRangePicker
             from={from}
             to={to}
@@ -218,6 +392,7 @@ export default function GraphPage() {
               </div>
             ) : (
               <ForceGraph2D
+                ref={fgRef}
                 graphData={graphData}
                 width={dims.w}
                 height={dims.h}
@@ -227,10 +402,32 @@ export default function GraphPage() {
                 nodeVal={(n: FGNode) => n.size}
                 linkColor={() => "rgba(0,0,0,0.15)"}
                 linkWidth={1}
-                onNodeClick={(n: FGNode) => setSelected(n)}
+                onNodeClick={(n: FGNode) => {
+                  setSelected(n);
+                  setHighlightId(n.id);
+                }}
                 cooldownTicks={120}
                 nodeCanvasObjectMode={() => "after"}
                 nodeCanvasObject={(node: any, ctx: any, scale: number) => {
+                  // Ring around the jump target / selected node — visible at
+                  // any zoom level so a fresh "Search → Enter" lands somewhere
+                  // visible even before we zoom in.
+                  const isHit =
+                    highlightId === node.id ||
+                    (selected && selected.id === node.id);
+                  if (isHit) {
+                    ctx.beginPath();
+                    ctx.arc(
+                      node.x,
+                      node.y,
+                      Math.max(node.size + 4, 8),
+                      0,
+                      2 * Math.PI
+                    );
+                    ctx.strokeStyle = "#111827";
+                    ctx.lineWidth = 2 / scale;
+                    ctx.stroke();
+                  }
                   // Draw label only when zoomed in enough so the view stays clean.
                   if (scale < 1.4) return;
                   const label = node.label ?? "";
@@ -274,7 +471,10 @@ export default function GraphPage() {
                 </span>
                 <div style={{ flex: 1 }} />
                 <button
-                  onClick={() => setSelected(null)}
+                  onClick={() => {
+                    setSelected(null);
+                    setHighlightId(null);
+                  }}
                   style={{
                     border: "none",
                     background: "transparent",
