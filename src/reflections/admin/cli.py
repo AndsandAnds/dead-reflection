@@ -19,11 +19,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 
 import sqlalchemy as sa
 
 from reflections.core.db import database_manager
+
+
+# Defensive: WIPE_TABLES is a hardcoded constant today, but if a future
+# contributor wires it to config or a request param, an interpolated table
+# name would become straight SQL injection. Enforce the shape we expect.
+_SAFE_TABLE_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 # Order doesn't matter — TRUNCATE … CASCADE handles FKs — but listing
@@ -59,6 +66,9 @@ PRESERVED_TABLES: list[str] = [
 
 
 async def _reset() -> int:
+    for t in WIPE_TABLES:
+        if not _SAFE_TABLE_NAME.fullmatch(t):
+            raise ValueError(f"unsafe table name in WIPE_TABLES: {t!r}")
     await database_manager.initialize()
     async with database_manager.session() as session:
         # Pre-flight: confirm every table exists. Better to fail loudly

@@ -2,7 +2,9 @@ name: reflections
 
 services:
   db:
-    image: pgvector/pgvector:pg18
+    # Pinned by digest. To refresh, `docker pull pgvector/pgvector:pg18` and
+    # copy the printed Digest here.
+    image: pgvector/pgvector:pg18@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d
     # Optional perf knob (Linux-only): try io_method=io_uring. We default to
     # "worker" and only change this after benchmarking.
     command: ["postgres", "-c", "io_method=${POSTGRES_IO_METHOD:-worker}"]

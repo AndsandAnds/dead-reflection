@@ -36,8 +36,12 @@ def build_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            # Narrowed from "*" — the browser UI only issues these verbs and
+            # only sends Content-Type as a non-simple header (auth rides on
+            # cookies). If a new endpoint needs a different method/header,
+            # add it here explicitly.
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type"],
         )
     configure_routers(app)
     configure_global_exception_handlers(app)

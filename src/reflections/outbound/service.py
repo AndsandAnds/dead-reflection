@@ -10,7 +10,10 @@ boundary; callers don't need to manage logging themselves.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import re
+import socket
 import time
 from dataclasses import dataclass
 from html import unescape
@@ -31,6 +34,54 @@ from reflections.outbound.schemas import InternetSearchResult, SearchHit
 
 DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
 DEFAULT_USER_AGENT = "Reflections/1.0 (+local; PrivacyByDefault)"
+
+
+def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # Reject anything that wouldn't make sense for an "outbound to the
+    # public internet" call: loopback, RFC1918, link-local (incl. AWS/GCP
+    # metadata at 169.254.169.254), CGNAT, ULA, multicast, unspecified.
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+async def _resolve_and_check_host(host: str) -> str | None:
+    """
+    Return None if every resolved IP for `host` is a safe public address.
+    Return the offending IP (as a string) if any resolved address is blocked.
+
+    Literal IPs in the URL are checked directly. Hostnames go through
+    getaddrinfo so AAAA records and CNAMEs are followed. DNS errors raise.
+
+    NOTE: this does not prevent DNS-rebind TOCTOU between this lookup and
+    httpx's own connect; for that, set EGRESS_PROXY_URL and run the proxy
+    with its own destination allowlist.
+    """
+    # urlparse strips brackets from IPv6 hostnames, so plain ip_address works
+    # for both literal v4 and v6.
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        return str(literal) if _is_blocked_ip(literal) else None
+
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    for info in infos:
+        sockaddr = info[4]
+        addr = sockaddr[0]
+        # Strip IPv6 zone id if present (fe80::1%eth0 → fe80::1).
+        addr = addr.split("%", 1)[0]
+        ip = ipaddress.ip_address(addr)
+        if _is_blocked_ip(ip):
+            return str(ip)
+    return None
 
 
 @dataclass
@@ -130,6 +181,62 @@ class OutboundService:
             raise OutboundForbiddenException(
                 "internet_forbidden",
                 "Outbound internet calls are restricted to admin users",
+            )
+
+        # SSRF guard: resolve the target host and reject if it points at
+        # loopback / RFC1918 / link-local / metadata addresses. This wrapper
+        # is exclusively for outbound *internet* calls; internal services
+        # (db, ollama, host bridges) use their own clients and don't pass
+        # through here. See _resolve_and_check_host for limitations.
+        parsed_host = urlparse(url).hostname
+        if not parsed_host:
+            await self._audit(
+                session,
+                user_id=user.id,
+                method=method.upper(),
+                url=url,
+                purpose=purpose,
+                status_code=None,
+                outcome="denied",
+                error="invalid_url_no_host",
+                duration_ms=None,
+            )
+            raise OutboundForbiddenException(
+                "outbound_invalid_url",
+                "Outbound URL is missing a host",
+            )
+        try:
+            blocked_ip = await _resolve_and_check_host(parsed_host)
+        except socket.gaierror as exc:
+            await self._audit(
+                session,
+                user_id=user.id,
+                method=method.upper(),
+                url=url,
+                purpose=purpose,
+                status_code=None,
+                outcome="error",
+                error=f"dns_resolution_failed: {exc}"[:200],
+                duration_ms=None,
+            )
+            raise OutboundServiceException(
+                "outbound_dns_failed", str(exc)
+            ) from exc
+        if blocked_ip is not None:
+            await self._audit(
+                session,
+                user_id=user.id,
+                method=method.upper(),
+                url=url,
+                purpose=purpose,
+                status_code=None,
+                outcome="denied",
+                error=f"blocked_internal_address: {blocked_ip}",
+                duration_ms=None,
+            )
+            raise OutboundForbiddenException(
+                "outbound_internal_address_blocked",
+                f"Outbound target resolves to a non-public address ({blocked_ip})",
             )
 
         merged_headers = {"User-Agent": DEFAULT_USER_AGENT, **(headers or {})}
