@@ -3,6 +3,9 @@
 .env.*
 *.env
 
+# Recall eval set (may contain private queries / memory ids)
+scripts/recall_eval_set.json
+
 # Local model weights (keep out of git)
 stable-diffusion/
 src/reflections/avatars/models/

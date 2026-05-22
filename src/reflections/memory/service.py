@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import math
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
-
-from datetime import datetime
 
 from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found]
 
 from reflections.commons.logging import logger as _logger
+from reflections.core.settings import settings
 from reflections.entities.service import EntitiesService
 from reflections.memory.exceptions import (
     MemoryServiceException,
@@ -17,10 +19,14 @@ from reflections.memory.exceptions import (
 )
 from reflections.memory.repository import (
     LinkedEntityRow,
+    MemoryCandidate,
     MemoryRepository,
     MemoryRow,
 )
 from reflections.memory.schemas import Turn
+
+if TYPE_CHECKING:
+    from sentence_transformers import CrossEncoder  # type: ignore[import-not-found]
 
 EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
@@ -31,6 +37,89 @@ def _normalize(vec: list[float]) -> list[float]:
     if norm == 0:
         return vec
     return [x / norm for x in vec]
+
+
+def _fuse_rrf(
+    legs: list[list[MemoryCandidate]],
+    *,
+    k: int,
+) -> list[tuple[MemoryRow, float]]:
+    """Reciprocal Rank Fusion: sum 1/(k + rank) across each leg.
+
+    Memories appearing in multiple legs accumulate. Each leg should be
+    pre-ranked best-first (rank=1 is best). Returns rows + fused score,
+    unsorted; caller is expected to sort or pass the list onward.
+    """
+    scores: dict[UUID, float] = {}
+    rows_by_id: dict[UUID, MemoryRow] = {}
+    for leg in legs:
+        for cand in leg:
+            mid = cand.row.id
+            scores[mid] = scores.get(mid, 0.0) + 1.0 / (k + cand.rank)
+            rows_by_id[mid] = cand.row
+    return [(rows_by_id[mid], scores[mid]) for mid in scores]
+
+
+def _apply_time_decay(
+    scored: list[tuple[MemoryRow, float]],
+    *,
+    half_life_days: float,
+    now: datetime | None = None,
+) -> list[tuple[MemoryRow, float]]:
+    """Multiply each score by 2^(-age_days / half_life_days).
+
+    At age == half_life_days the multiplier is 0.5. Treats negative ages
+    (clock skew) as zero so future-dated rows don't get boosted.
+    """
+    if half_life_days <= 0:
+        return scored
+    reference = now or datetime.now(UTC)
+    decay_constant = math.log(2) / half_life_days
+    out: list[tuple[MemoryRow, float]] = []
+    for row, score in scored:
+        age_days = max(0.0, (reference - row.created_at).total_seconds() / 86400.0)
+        out.append((row, score * math.exp(-decay_constant * age_days)))
+    return out
+
+
+_RERANKER_CACHE: dict[str, CrossEncoder] = {}
+
+
+def _get_reranker(model_id: str) -> CrossEncoder:
+    """Lazily load and cache the cross-encoder. Same pattern as the
+    sentence-transformer embedder cached on `MemoryService.embedder`."""
+    cached = _RERANKER_CACHE.get(model_id)
+    if cached is not None:
+        return cached
+    from sentence_transformers import (  # type: ignore[import-not-found]
+        CrossEncoder,
+    )
+
+    model = CrossEncoder(model_id)
+    _RERANKER_CACHE[model_id] = model
+    return model
+
+
+async def _rerank_with_cross_encoder(
+    query: str,
+    scored: list[tuple[MemoryRow, float]],
+    *,
+    model_id: str,
+) -> list[tuple[MemoryRow, float]]:
+    """Re-score each (query, content) pair with the cross-encoder and
+    re-sort. The model `.predict` call is sync CPU/GPU work, so we run
+    it on a worker thread to keep the event loop responsive."""
+    if not scored:
+        return scored
+    model = _get_reranker(model_id)
+    pairs = [(query, row.content or "") for row, _ in scored]
+    rerank_scores = await asyncio.to_thread(model.predict, pairs)
+    out: list[tuple[MemoryRow, float]] = [
+        (row, float(s))
+        for (row, _prev), s in zip(scored, rerank_scores, strict=True)
+    ]
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
 
 
 def chunk_turns_by_window(turns: list[Turn], window: int) -> list[str]:
@@ -301,18 +390,58 @@ class MemoryService:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         include_private: bool = True,
+        # Per-call overrides for the eval harness. None = use settings.
+        hybrid_enabled: bool | None = None,
+        rerank_enabled: bool | None = None,
+        decay_enabled: bool | None = None,
+        candidate_pool: int | None = None,
+        rrf_k: int | None = None,
+        half_life_days: float | None = None,
     ) -> list[MemoryRow]:
+        """Hybrid recall with RRF fusion, time-decay, and cross-encoder rerank.
+
+        Layers are independently gated (per-call overrides win over env-var
+        defaults). With all layers off the behaviour is equivalent to the
+        pure-pgvector path that this method replaced.
+        """
         if not query.strip():
             raise MemoryUnprocessableException("Query is empty")
 
+        hybrid = (
+            settings.RECALL_HYBRID_ENABLED
+            if hybrid_enabled is None
+            else hybrid_enabled
+        )
+        rerank = (
+            settings.RECALL_RERANKER_ENABLED
+            if rerank_enabled is None
+            else rerank_enabled
+        )
+        decay = (
+            settings.RECALL_TIME_DECAY_ENABLED
+            if decay_enabled is None
+            else decay_enabled
+        )
+        pool = (
+            settings.RECALL_CANDIDATE_POOL
+            if candidate_pool is None
+            else candidate_pool
+        )
+        k_rrf = settings.RECALL_RRF_K if rrf_k is None else rrf_k
+        half_life = (
+            settings.RECALL_TIME_DECAY_HALF_LIFE_DAYS
+            if half_life_days is None
+            else half_life_days
+        )
+
         try:
             q_emb = self.embed_text(query)
-            return await self.repository.search(
+            vector_leg = await self.repository.vector_candidates(
                 session,
                 user_id=user_id,
                 avatar_id=avatar_id,
                 query_embedding=q_emb,
-                top_k=top_k,
+                limit=pool,
                 include_user_scope=include_user_scope,
                 include_avatar_scope=include_avatar_scope,
                 include_cards=include_cards,
@@ -322,6 +451,45 @@ class MemoryService:
                 date_to=date_to,
                 include_private=include_private,
             )
+
+            bm25_leg: list[MemoryCandidate] = []
+            if hybrid:
+                bm25_leg = await self.repository.bm25_candidates(
+                    session,
+                    user_id=user_id,
+                    avatar_id=avatar_id,
+                    query_text=query,
+                    limit=pool,
+                    include_user_scope=include_user_scope,
+                    include_avatar_scope=include_avatar_scope,
+                    include_cards=include_cards,
+                    include_chunks=include_chunks,
+                    entity_ids=entity_ids,
+                    date_from=date_from,
+                    date_to=date_to,
+                    include_private=include_private,
+                )
+
+            # Fuse. With hybrid off, we still feed RRF the vector leg alone so
+            # the score shape is consistent for downstream layers; the result
+            # ordering is identical to pure vector ranking in that case.
+            legs = [vector_leg, bm25_leg] if hybrid else [vector_leg]
+            scored = _fuse_rrf(legs, k=k_rrf)
+
+            if decay:
+                scored = _apply_time_decay(scored, half_life_days=half_life)
+
+            scored.sort(key=lambda x: x[1], reverse=True)
+            scored = scored[:pool]
+
+            if rerank:
+                scored = await _rerank_with_cross_encoder(
+                    query,
+                    scored,
+                    model_id=settings.RECALL_RERANKER_MODEL,
+                )
+
+            return [row for row, _ in scored[:top_k]]
         except MemoryUnprocessableException:
             raise
         except Exception as exc:

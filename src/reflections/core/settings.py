@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     MEMORY_AUTO_INGEST: bool = True
     MEMORY_CHUNK_TURN_WINDOW: int = 2
 
+    # Recall ranking (G1). All three layers default-on; flip individually
+    # via env vars when A/B-ing or when running the eval harness.
+    RECALL_HYBRID_ENABLED: bool = True
+    RECALL_RRF_K: int = 60
+    RECALL_RERANKER_ENABLED: bool = True
+    RECALL_RERANKER_MODEL: str = "BAAI/bge-reranker-base"
+    RECALL_TIME_DECAY_ENABLED: bool = True
+    RECALL_TIME_DECAY_HALF_LIFE_DAYS: float = 180.0
+    RECALL_CANDIDATE_POOL: int = 50
+
     # Outbound egress (admin-only): optional HTTP proxy URL all outbound
     # calls route through when set. Leave unset for direct egress.
     EGRESS_PROXY_URL: str | None = None

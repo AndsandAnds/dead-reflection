@@ -34,6 +34,19 @@ class MemoryRow:
 
 
 @dataclass(frozen=True)
+class MemoryCandidate:
+    """One candidate from a single retrieval leg (vector or BM25).
+
+    Carries the full row so the service can fuse, decay, rerank, and
+    return without a second SELECT to materialize content.
+    """
+
+    row: MemoryRow
+    score: float
+    rank: int  # 1-based rank within the producing leg
+
+
+@dataclass(frozen=True)
 class LinkedEntityRow:
     id: UUID
     kind: str
@@ -208,32 +221,26 @@ class MemoryRepository:
         await session.flush()
         return res.scalar_one()
 
-    async def search(
+    def _filter_conditions(
         self,
-        session: AsyncSession,
         *,
         user_id: UUID,
         avatar_id: UUID | None,
-        query_embedding: list[float],
-        top_k: int,
         include_user_scope: bool,
         include_avatar_scope: bool,
         include_cards: bool,
         include_chunks: bool,
-        entity_ids: list[UUID] | None = None,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        include_private: bool = True,
-    ) -> list[MemoryRow]:
-        """
-        Vector search using pgvector inner product (vectors are L2-normalized).
+        entity_ids: list[UUID] | None,
+        date_from: datetime | None,
+        date_to: datetime | None,
+        include_private: bool,
+    ) -> list[Any]:
+        """Build the WHERE clauses shared by vector and BM25 candidate paths.
 
-        We use `<#>` operator (negative inner product distance) so ASC order is
-        "most similar". Supports optional filtering by linked entities and
-        a created_at date range.
+        Keeping this in one place is load-bearing: the two retrieval legs MUST
+        see the same candidate pool for RRF to be meaningful. Privacy gate
+        (`include_private=False`) flows through here unchanged.
         """
-        emb_lit = "[" + ",".join(f"{x:.8f}" for x in query_embedding) + "]"
-
         conditions: list[Any] = [memory_items.c.user_id == user_id]
 
         scope_conds: list[Any] = []
@@ -263,7 +270,6 @@ class MemoryRepository:
             conditions.append(memory_items.c.created_at <= date_to)
 
         if entity_ids:
-            # Restrict to memories linked to ANY of the supplied entities.
             link_subq = (
                 sa.select(memory_entity_links_table.c.memory_item_id)
                 .where(memory_entity_links_table.c.entity_id.in_(entity_ids))
@@ -275,11 +281,125 @@ class MemoryRepository:
         if not include_private:
             conditions.append(memory_items.c.private.is_(False))
 
-        # SQLAlchemy 2.x: a TextClause is not orderable on its own; use
-        # literal_column so we can apply .asc() and keep ASC explicit.
-        order_expr = sa.literal_column(
-            f"embedding <#> '{emb_lit}'::vector"
-        ).asc()
+        return conditions
+
+    async def vector_candidates(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        avatar_id: UUID | None,
+        query_embedding: list[float],
+        limit: int,
+        include_user_scope: bool,
+        include_avatar_scope: bool,
+        include_cards: bool,
+        include_chunks: bool,
+        entity_ids: list[UUID] | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        include_private: bool = True,
+    ) -> list[MemoryCandidate]:
+        """Top-N candidates by pgvector inner-product similarity.
+
+        Vectors are L2-normalized so `<#>` (negative inner product) is the
+        right distance and ASC = most similar. The score returned is the
+        positive similarity (so larger == more similar) to match the
+        BM25 leg's convention.
+        """
+        emb_lit = "[" + ",".join(f"{x:.8f}" for x in query_embedding) + "]"
+        conditions = self._filter_conditions(
+            user_id=user_id,
+            avatar_id=avatar_id,
+            include_user_scope=include_user_scope,
+            include_avatar_scope=include_avatar_scope,
+            include_cards=include_cards,
+            include_chunks=include_chunks,
+            entity_ids=entity_ids,
+            date_from=date_from,
+            date_to=date_to,
+            include_private=include_private,
+        )
+
+        distance_expr = sa.literal_column(f"(embedding <#> '{emb_lit}'::vector)")
+        stmt = (
+            sa.select(
+                memory_items.c.id,
+                memory_items.c.user_id,
+                memory_items.c.avatar_id,
+                memory_items.c.scope,
+                memory_items.c.kind,
+                memory_items.c.content,
+                memory_items.c.created_at,
+                distance_expr.label("distance"),
+            )
+            .where(sa.and_(*conditions))
+            .order_by(distance_expr.asc())
+            .limit(limit)
+        )
+
+        rows = (await session.execute(stmt)).all()
+        out: list[MemoryCandidate] = []
+        for rank, r in enumerate(rows, start=1):
+            # `<#>` returns negative inner product; flip sign so larger == better.
+            score = -float(r.distance) if r.distance is not None else 0.0
+            row = MemoryRow(
+                id=r.id,
+                user_id=r.user_id,
+                avatar_id=r.avatar_id,
+                scope=r.scope,
+                kind=r.kind,
+                content=r.content,
+                created_at=r.created_at,
+            )
+            out.append(MemoryCandidate(row=row, score=score, rank=rank))
+        return out
+
+    async def bm25_candidates(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        avatar_id: UUID | None,
+        query_text: str,
+        limit: int,
+        include_user_scope: bool,
+        include_avatar_scope: bool,
+        include_cards: bool,
+        include_chunks: bool,
+        entity_ids: list[UUID] | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+        include_private: bool = True,
+    ) -> list[MemoryCandidate]:
+        """Top-N candidates by Postgres BM25-style lexical scoring.
+
+        Uses the `content_tsv` GENERATED STORED column + GIN index added by
+        migration 0015. `ts_rank_cd` weights term frequency and proximity;
+        higher == more relevant. Empty query (no tokens after parsing)
+        produces no candidates.
+        """
+        if not (query_text or "").strip():
+            return []
+
+        conditions = self._filter_conditions(
+            user_id=user_id,
+            avatar_id=avatar_id,
+            include_user_scope=include_user_scope,
+            include_avatar_scope=include_avatar_scope,
+            include_cards=include_cards,
+            include_chunks=include_chunks,
+            entity_ids=entity_ids,
+            date_from=date_from,
+            date_to=date_to,
+            include_private=include_private,
+        )
+        # plainto_tsquery handles user phrasing without operators; ts_rank_cd
+        # is the cover-density variant which rewards proximity.
+        tsquery = sa.func.plainto_tsquery("english", query_text)
+        tsv_col = sa.literal_column("content_tsv")
+        rank_expr = sa.func.ts_rank_cd(tsv_col, tsquery)
+        conditions.append(tsv_col.op("@@")(tsquery))
 
         stmt = (
             sa.select(
@@ -290,15 +410,18 @@ class MemoryRepository:
                 memory_items.c.kind,
                 memory_items.c.content,
                 memory_items.c.created_at,
+                rank_expr.label("bm25_score"),
             )
             .where(sa.and_(*conditions))
-            .order_by(order_expr)
-            .limit(top_k)
+            .order_by(rank_expr.desc())
+            .limit(limit)
         )
 
         rows = (await session.execute(stmt)).all()
-        return [
-            MemoryRow(
+        out: list[MemoryCandidate] = []
+        for rank, r in enumerate(rows, start=1):
+            score = float(r.bm25_score) if r.bm25_score is not None else 0.0
+            row = MemoryRow(
                 id=r.id,
                 user_id=r.user_id,
                 avatar_id=r.avatar_id,
@@ -307,8 +430,8 @@ class MemoryRepository:
                 content=r.content,
                 created_at=r.created_at,
             )
-            for r in rows
-        ]
+            out.append(MemoryCandidate(row=row, score=score, rank=rank))
+        return out
 
     async def get_linked_entities(
         self,
