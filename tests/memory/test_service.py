@@ -5,18 +5,33 @@ from reflections.memory.service import (
 )
 
 
-def test_chunk_turns_by_window_groups_turns() -> None:
+def test_chunk_turns_by_window_emits_plain_text_no_role_prefix() -> None:
+    """The chunk formatter MUST NOT add role prefixes — they leak into
+    storage. The ingest pipeline filters to user-only turns upstream;
+    this function just joins their content."""
     turns = [
         Turn(role="user", content="one"),
-        Turn(role="assistant", content="two"),
         Turn(role="user", content="three"),
-        Turn(role="assistant", content="four"),
         Turn(role="user", content="five"),
     ]
     chunks = chunk_turns_by_window(turns, window=2)
-    assert len(chunks) == 3
-    assert "user: one" in chunks[0]
-    assert "assistant: two" in chunks[0]
+    assert len(chunks) == 2
+    assert chunks[0] == "one\nthree"
+    assert chunks[1] == "five"
+    # Guard against regression to the old role-prefixed format.
+    for chunk in chunks:
+        assert "user:" not in chunk
+        assert "assistant:" not in chunk
+
+
+def test_chunk_turns_by_window_skips_empty_groups() -> None:
+    """If a group ends up empty after content filtering, no chunk
+    should be emitted (no blank rows in memory_items)."""
+    turns = [
+        Turn(role="user", content="   "),
+        Turn(role="user", content=""),
+    ]
+    assert chunk_turns_by_window(turns, window=2) == []
 
 
 def test_extract_memory_cards_heuristic_is_conservative() -> None:

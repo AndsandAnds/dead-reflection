@@ -35,7 +35,16 @@ def _normalize(vec: list[float]) -> list[float]:
 
 def chunk_turns_by_window(turns: list[Turn], window: int) -> list[str]:
     """
-    Decision #4: chunk raw memory by turns (3–6 turns typical).
+    Group consecutive turns into windowed chunks of plain text.
+
+    Output format is one statement per line, NO role prefix. This is
+    deliberate: only user-attributed turns should reach this function
+    (the ingest path filters them out before calling this), so the
+    `"user: "` prefix the old version emitted was both redundant and
+    actively harmful — it leaked into memory_items.content, into the
+    graph viz, into vault exports, into recall context. Callers that
+    need to keep dialogue context for chat replay should use the
+    `conversations` table, not memory chunks.
     """
     if window < 2:
         raise ValueError("window must be >= 2")
@@ -43,8 +52,9 @@ def chunk_turns_by_window(turns: list[Turn], window: int) -> list[str]:
     chunks: list[str] = []
     for i in range(0, len(turns), window):
         group = turns[i : i + window]
-        text = "\n".join(f"{t.role}: {t.content}" for t in group)
-        chunks.append(text)
+        text = "\n".join(t.content for t in group if (t.content or "").strip())
+        if text.strip():
+            chunks.append(text)
     return chunks
 
 
@@ -185,9 +195,27 @@ class MemoryService:
         if not turns:
             raise MemoryUnprocessableException("No turns provided")
 
+        # Hard rule: the assistant's response is never added to the
+        # knowledge graph. Strip non-user turns BEFORE any extraction or
+        # storage so the model's hallucinated proper nouns never end up
+        # in memory_items.content, the entity graph, vault exports, or
+        # the recall context fed to future turns. Chat continuity is
+        # already handled separately via `conversations` /
+        # `conversation_turns`, which is the right home for assistant
+        # text.
+        user_turns = [
+            t for t in turns
+            if (t.role or "").lower() == "user"
+            and (t.content or "").strip()
+        ]
+        if not user_turns:
+            # Nothing user-attributed to store — bail out cleanly without
+            # erroring (e.g. an assistant-only greet that triggered ingest).
+            return [], 0, 0
+
         stored_ids: list[UUID] = []
-        cards = extract_memory_cards_heuristic(turns)
-        raw_chunks = chunk_turns_by_window(turns, chunk_turn_window)
+        cards = extract_memory_cards_heuristic(user_turns)
+        raw_chunks = chunk_turns_by_window(user_turns, chunk_turn_window)
 
         try:
             # Memory cards
