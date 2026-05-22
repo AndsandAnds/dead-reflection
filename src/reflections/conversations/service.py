@@ -76,6 +76,12 @@ class ConversationsService:
             role="assistant",
             content=assistant_text,
         )
+        # The repo only flushes — without an explicit commit here the
+        # turn pair gets rolled back when the session context closes,
+        # so /voice never sees any history on nav-back. Matches the
+        # pattern used by every other service in this codebase
+        # (memory/service.py, artifacts/service.py, auth/service.py).
+        await session.commit()
         return cid
 
     async def load_recent_context(
