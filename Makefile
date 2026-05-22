@@ -6,6 +6,7 @@
 .PHONY: db-bench-vector-setup db-bench-vector db-bench-vector-worker db-bench-vector-io-uring
 .PHONY: test-backend-fast test-backend-verbose test-backend-specific test-frontend-verbose
 .PHONY: bridges-preflight bridges-verify-running check-bridge-python check-tts-piper check-stt-whisper check-calendar-eventkit
+.PHONY: mcp-token crawl-folder reset-graph
 
 RUN_DIR := run
 STT_PID := $(RUN_DIR)/stt-bridge.pid
@@ -48,6 +49,9 @@ help:
 	@echo "  make db-shell  - psql shell into Postgres"
 	@echo "  make api-shell - shell into API container"
 	@echo "  make ui-shell  - shell into UI container"
+	@echo "  make mcp-token email=... [name=...] [scopes=mcp:read,...] - mint an MCP token"
+	@echo "  make crawl-folder email=... path=... [label=...] [subpath=...] - register volume + walk it"
+	@echo "  make reset-graph confirm=YES - DESTRUCTIVE: wipe all memories/entities/artifacts/conversations"
 
 up:
 	docker compose up -d --build
@@ -311,6 +315,29 @@ crawl-folder:
 	  $(if $(label),--label "$(label)") \
 	  $(if $(subpath),--subpath "$(subpath)") \
 	  $(if $(max_pages),--max-pages "$(max_pages)")
+
+# DESTRUCTIVE: wipe every memory / entity / link / artifact / volume /
+# extraction policy / conversation in the database, across all users.
+# Preserves users, sessions, mcp tokens, avatars, and outbound audit log,
+# so you stay signed in and your MCP clients keep working.
+#
+#   make reset-graph confirm=YES
+#
+# The confirm gate exists because this is irreversible and the data has
+# no soft-delete column.
+reset-graph:
+	@if [ "$(confirm)" != "YES" ]; then \
+	  echo ""; \
+	  echo "  DESTRUCTIVE: wipes memories, entities, artifacts, volumes,"; \
+	  echo "  extraction policies, and conversations for ALL users."; \
+	  echo ""; \
+	  echo "  Preserved: users, sessions, mcp_tokens, avatars, audit log."; \
+	  echo ""; \
+	  echo "  To run:   make reset-graph confirm=YES"; \
+	  echo ""; \
+	  exit 2; \
+	fi
+	@docker compose exec -T api python -m reflections.admin.cli reset-graph --yes
 
 stt-bridge:
 	poetry run python -m uvicorn reflections.stt_bridge.main:app --host 0.0.0.0 --port 9001
