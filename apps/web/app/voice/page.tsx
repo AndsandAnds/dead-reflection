@@ -910,7 +910,7 @@ export default function VoicePage() {
     <main>
       {me ? <LuminaTopBar user={me} /> : null}
       <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-        <h1 style={{ marginTop: 0 }}>Lumina</h1>
+        <h1 style={{ marginTop: 0 }}>{activeAvatar?.name ?? "Lumina"}</h1>
         <p style={{ color: "#444" }}>
           MVP voice streaming to FastAPI WebSocket (STT currently stubbed
           server-side).
