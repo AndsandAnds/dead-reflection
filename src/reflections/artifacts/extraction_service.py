@@ -204,6 +204,7 @@ class ArtifactExtractionService:
         await self._run_entity_extraction(
             session,
             user_id=user_id,
+            artifact_id=artifact.id,
             chunks=chunks,
             written_ids=written,
         )
@@ -381,6 +382,7 @@ class ArtifactExtractionService:
         session: AsyncSession,
         *,
         user_id: UUID,
+        artifact_id: UUID,
         chunks: list[ExtractedChunk],
         written_ids: list[UUID],
     ) -> None:
@@ -406,6 +408,25 @@ class ArtifactExtractionService:
                     chunk_id,
                     exc,
                 )
+
+        # Materialize direct artifact↔entity edges alongside the
+        # chunk-mediated path so the graph can render file↔entity
+        # without forcing a two-hop traversal. Best-effort: the
+        # chunk-mediated links above remain authoritative.
+        try:
+            await self.repo.link_entities_via_chunks(
+                session,
+                artifact_id=artifact_id,
+                memory_item_ids=written_ids,
+            )
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            logger.warning(
+                "artifact_entity_link_persist_failed artifact_id=%s err=%s",
+                artifact_id,
+                exc,
+            )
 
 
 def _to_policy(row: PolicyRow) -> Policy:

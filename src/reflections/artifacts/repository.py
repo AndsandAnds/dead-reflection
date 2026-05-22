@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # type: ignore[import-not-found
 from sqlalchemy.dialects.postgresql import insert as pg_insert  # type: ignore[import-not-found]
 
 from reflections.commons.ids import uuid7_uuid
+from reflections.entities.repository import memory_entity_links_table
 
 metadata = sa.MetaData()
 
@@ -351,6 +352,48 @@ class ArtifactsRepository:
             )
         )
         res = await session.execute(stmt)
+        await session.flush()
+        return int(res.rowcount or 0)
+
+    # --- artifact ↔ entity direct links -----------------------------------
+
+    async def link_entities_via_chunks(
+        self,
+        session: AsyncSession,
+        *,
+        artifact_id: UUID,
+        memory_item_ids: list[UUID],
+    ) -> int:
+        """Materialize direct artifact→entity edges from chunk-mediated ones.
+
+        For every (memory_item_id, entity_id) row in memory_entity_links
+        whose memory_item_id is in `memory_item_ids`, ensure a row exists
+        in artifact_entity_links keyed on (artifact_id, entity_id, '').
+        Idempotent via ON CONFLICT DO NOTHING.
+        """
+        if not memory_item_ids:
+            return 0
+        select_stmt = (
+            sa.select(
+                sa.literal(artifact_id).label("artifact_id"),
+                memory_entity_links_table.c.entity_id,
+                sa.literal("").label("relation"),
+            )
+            .where(
+                memory_entity_links_table.c.memory_item_id.in_(memory_item_ids)
+            )
+            .distinct()
+        )
+        ins_stmt = (
+            pg_insert(artifact_entity_links_table)
+            .from_select(
+                ["artifact_id", "entity_id", "relation"], select_stmt
+            )
+            .on_conflict_do_nothing(
+                index_elements=["artifact_id", "entity_id", "relation"]
+            )
+        )
+        res = await session.execute(ins_stmt)
         await session.flush()
         return int(res.rowcount or 0)
 
