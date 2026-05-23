@@ -10,6 +10,10 @@ class VoiceHello(BaseModel):
     sample_rate: int | None = None
     # Optional TTS voice identifier (engine-specific). If omitted, server uses its default.
     voice: str | None = None
+    # Push-to-talk: when true, the client owns turn boundaries (release of the
+    # PTT control sends `end`) and the server-side silence endpointer is
+    # suppressed for this session.
+    ptt: bool | None = None
 
 
 class VoiceAudioFrame(BaseModel):
