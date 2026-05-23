@@ -52,6 +52,10 @@ class VoiceSessionState:
     # naive VAD / endpointing (RMS threshold on PCM16)
     vad_last_speech_monotonic: float = 0.0
     vad_started_monotonic: float = 0.0
+    # Push-to-talk: when the client opts in via `hello.ptt=true`, it owns turn
+    # boundaries and the server's silence endpointer is disabled so a pause
+    # while the user is still holding the PTT control doesn't finalize early.
+    ptt_mode: bool = False
 
 
 def build_ready_message() -> ServerReady:
@@ -620,7 +624,9 @@ async def run_voice_session(websocket: WebSocket) -> None:
     async def endpoint_loop() -> None:
         # Naive server-side VAD/endpointing: watch RMS, auto-end after silence.
         # This complements the client-side silence timer and helps if the client
-        # can't run endpointing reliably.
+        # can't run endpointing reliably. Skipped entirely in PTT mode — the
+        # client signals the end of every turn explicitly when the user
+        # releases the push-to-talk control.
         min_record_s = 0.8
         silence_s = 0.7
         try:
@@ -628,6 +634,8 @@ async def run_voice_session(websocket: WebSocket) -> None:
                 await asyncio.sleep(0.05)
                 if state.closed:
                     return
+                if state.ptt_mode:
+                    continue
                 if not state.recording:
                     continue
                 if state.vad_started_monotonic <= 0:
@@ -714,6 +722,7 @@ async def run_voice_session(websocket: WebSocket) -> None:
                     state.tts_voice = str(parsed.voice).strip() if parsed.voice else None
                 except Exception:
                     state.tts_voice = None
+                state.ptt_mode = bool(parsed.ptt)
                 continue
 
             if parsed.type == "audio_frame":

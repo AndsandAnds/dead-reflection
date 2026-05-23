@@ -76,8 +76,7 @@ export default function VoicePage() {
   const playbackRef = useRef<AudioBufferSourceNode | null>(null);
   const workletLoadedRef = useRef<boolean>(false);
   const statusRef = useRef<string>("idle");
-  const lastSpeechMsRef = useRef<number>(0);
-  const startedMsRef = useRef<number>(0);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const ttsQueueRef = useRef<AudioBuffer[]>([]);
   const ttsPlayingRef = useRef<boolean>(false);
   const ttsSawChunksRef = useRef<boolean>(false);
@@ -90,6 +89,15 @@ export default function VoicePage() {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // Keep the transcript pinned to the newest line. The container itself
+  // scrolls (see styles below), so the page no longer grows unboundedly
+  // when a long conversation accumulates.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, partial]);
 
   // Reloads the active avatar from the server. Called on mount AND on
   // visibility change so that editing the avatar on /avatar and coming
@@ -276,11 +284,24 @@ export default function VoicePage() {
       }
     };
 
+    // Safety net: if the window loses focus while space is held (alt-tab,
+    // OS notification stealing focus, etc.) the keyup never fires and the
+    // mic would stay armed indefinitely. Release on blur.
+    const onBlur = () => {
+      if (!spaceDownRef.current) return;
+      spaceDownRef.current = false;
+      if (statusRef.current === "running") {
+        stop(false);
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp, { passive: false });
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown as any);
       window.removeEventListener("keyup", onKeyUp as any);
+      window.removeEventListener("blur", onBlur);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -582,6 +603,11 @@ export default function VoicePage() {
         }
         if (msg.type === "done") {
           // Turn boundary: reset per-turn TTS chunk tracking.
+          // Also tear down mic capture — the server-side endpointer can
+          // finalize a turn before the client's silence timer fires, in
+          // which case stop() was never called and the MediaStream would
+          // otherwise stay live (mic indicator on, frames still streaming).
+          cleanupCapture();
           ttsSawChunksRef.current = false;
           assistantStreamingRef.current = false;
           assistantHadDeltaRef.current = false;
@@ -606,6 +632,9 @@ export default function VoicePage() {
           } finally {
             playbackRef.current = null;
           }
+          // Same reason as 'done': a server-initiated cancel (e.g. barge-in
+          // detection) must not leave the mic capture live.
+          cleanupCapture();
           ttsQueueRef.current = [];
           ttsPlayingRef.current = false;
           ttsSawChunksRef.current = false;
@@ -739,6 +768,7 @@ export default function VoicePage() {
         JSON.stringify({
           type: "hello",
           sample_rate: ctx.sampleRate,
+          ptt: true,
           ...(voice ? { voice: String(voice) } : {}),
         })
       );
@@ -753,8 +783,6 @@ export default function VoicePage() {
         channelCount: 1,
       });
       workletRef.current = worklet;
-      startedMsRef.current = performance.now();
-      lastSpeechMsRef.current = startedMsRef.current;
 
       worklet.port.onmessage = (ev: MessageEvent) => {
         if (ws.readyState !== WebSocket.OPEN) return;
@@ -766,20 +794,8 @@ export default function VoicePage() {
           lastUiTickMsRef.current = now;
           setInputLevel(clamp01(lvl * 3.0));
         }
-
-        // Simple endpointing (silence timer): if user is quiet for a bit, auto-end.
-        // This keeps a push-to-talk UX (Start mic / Stop) but makes it feel more
-        // "hands free" for short utterances.
-        const speechThreshold = 0.02;
-        if (lvl >= speechThreshold) lastSpeechMsRef.current = now;
-        if (
-          statusRef.current === "running" &&
-          now - startedMsRef.current > 1200 &&
-          now - lastSpeechMsRef.current > 900
-        ) {
-          stop(false);
-          return;
-        }
+        // No client-side silence auto-stop: the mic is push-to-talk, the user
+        // (or the explicit Cancel/Hang-up controls) decides when a turn ends.
 
         // Prefer binary WS frames for audio (lower overhead than base64 JSON).
         // Apply basic backpressure by dropping frames if the socket buffer grows.
@@ -893,6 +909,31 @@ export default function VoicePage() {
     streamRef.current = null;
   }
 
+  function hangup() {
+    // Fully end the session: stop the mic, kill TTS playback, close the WS,
+    // tear down the audio context. Page state returns to "disconnected" —
+    // the next press-to-talk will re-open the socket via ensureSocket().
+    try {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "cancel" }));
+      }
+    } catch {
+      // ignore
+    }
+    cleanupCapture();
+    closeWs();
+    cleanupAll();
+    finalizeSentRef.current = false;
+    ttsQueueRef.current = [];
+    ttsPlayingRef.current = false;
+    ttsSawChunksRef.current = false;
+    assistantStreamingRef.current = false;
+    assistantHadDeltaRef.current = false;
+    statusRef.current = "disconnected";
+    setStatus("disconnected");
+  }
+
   useEffect(() => {
     return () => {
       try {
@@ -936,23 +977,50 @@ export default function VoicePage() {
         ) : null}
 
         <section style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {status !== "running" ? (
-            <button
-              onClick={start}
-              disabled={status === "connecting" || status === "finalizing"}
-            >
-              {status === "connecting"
-                ? "Connecting..."
-                : status === "finalizing"
-                ? "Finalizing..."
-                : "Start mic"}
+          {/*
+            Push-to-talk: holding the button (or the Space key) arms the
+            mic; releasing it finalizes the turn. Mouse + touch handlers
+            mirror the keyboard PTT for users without a spacebar.
+          */}
+          <button
+            onMouseDown={() => {
+              const st = statusRef.current;
+              if (st === "idle" || st === "disconnected") void start();
+            }}
+            onMouseUp={() => {
+              if (statusRef.current === "running") stop(false);
+            }}
+            onMouseLeave={() => {
+              if (statusRef.current === "running") stop(false);
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              const st = statusRef.current;
+              if (st === "idle" || st === "disconnected") void start();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              if (statusRef.current === "running") stop(false);
+            }}
+            disabled={status === "connecting" || status === "finalizing"}
+            aria-pressed={status === "running"}
+          >
+            {status === "connecting"
+              ? "Connecting..."
+              : status === "finalizing"
+              ? "Finalizing..."
+              : status === "running"
+              ? "Recording — release to send"
+              : "Hold to talk (Space)"}
+          </button>
+          {status === "running" ? (
+            <button onClick={() => stop(true)}>Cancel</button>
+          ) : null}
+          {status !== "disconnected" ? (
+            <button onClick={hangup} title="End session and close connection">
+              Hang up
             </button>
-          ) : (
-            <>
-              <button onClick={() => stop(false)}>Stop (transcribe)</button>
-              <button onClick={() => stop(true)}>Cancel</button>
-            </>
-          )}
+          ) : null}
           <div style={{ fontSize: 12, color: "#666" }}>WS: {wsUrl}</div>
           <a href="/avatar" style={{ fontSize: 12 }}>
             Avatar
@@ -1085,9 +1153,12 @@ export default function VoicePage() {
         >
           <div style={{ fontSize: 12, color: "#666" }}>Conversation</div>
           <div
+            ref={transcriptRef}
             style={{
               marginTop: 8,
               fontFamily: "ui-monospace, Menlo, monospace",
+              maxHeight: "50vh",
+              overflowY: "auto",
             }}
           >
             {messages.length === 0 && !partial
